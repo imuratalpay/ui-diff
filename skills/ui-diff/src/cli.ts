@@ -8,12 +8,13 @@ import { inferFromPath } from './conventions.js';
 import { detectChanges, detectSummary } from './detect.js';
 import { exec } from './exec.js';
 import { git, repoRoot } from './git.js';
-import { createGhClient, findStickyComment, getPullRequest, prState, repoVisibility, uploadGuard, upsertStickyComment } from './github.js';
+import { createGhClient, findStickyComment, getPullRequest, prState, publishDecision, repoVisibility, uploadGuard, upsertStickyComment } from './github.js';
+import type { RemoteInfo } from './git.js';
 import { configureLog, log, notesAfter, redact, UiDiffError, writeRedacted } from './log.js';
-import { referencedImages, renderComment } from './markdown.js';
+import { noUiChangeComment, referencedImages, renderComment } from './markdown.js';
 import { lastRunFailure, runPipeline } from './pipeline.js';
 import { encodePath, linkBaseFor, listAssetPrs, publishToBranch, pruneBranch, resolveRemote } from './publish.js';
-import type { Report } from './report.js';
+import { noUiChange, type Report } from './report.js';
 import { killAllServers } from './server.js';
 import { detectTokenFiles } from './tokens.js';
 import { VERSION } from './version.js';
@@ -269,6 +270,10 @@ async function cmdPublish(values: Values): Promise<void> {
   const branch = (values.branch as string | undefined) ?? cfg.publish.branch;
   const { info } = await resolveRemote(root, remoteName);
   const prNumber = values.pr ? Number(values.pr) : dryRun ? undefined : await currentPr(root);
+  if (noUiChange(report)) {
+    await publishNoUiChange(report, { values, cfg, outDir, info, prNumber, dryRun });
+    return;
+  }
   const groupDir = `pr-${prNumber ?? 'local'}/${cfg.comment.id}`;
   const runDir = `${groupDir}/${runStamp(report)}-${report.head.shortSha ?? 'preview'}`;
   const linkOverride = (values['link-base'] as string | undefined) ?? cfg.publish.linkBase;
@@ -337,6 +342,37 @@ async function cmdPublish(values: Values): Promise<void> {
   const { action, comment } = await upsertStickyComment(client, { repo: repoSlug!, pr: prNumber!, body, existing });
   log.info(`comment ${action}${comment.url ? `: ${comment.url}` : ''}`);
   print({ action, url: comment.url, pushed, images: uploads.length, branch: upload ? branch : undefined, runDir: upload ? runDir : undefined });
+}
+
+/** No changed UI file: never create a comment; reduce an existing one to a one-line note. Nothing is uploaded. */
+async function publishNoUiChange(
+  report: Report,
+  ctx: { values: Values; cfg: ResolvedConfig; outDir: string; info?: RemoteInfo; prNumber?: number; dryRun: boolean },
+): Promise<void> {
+  const { values, cfg, outDir, info, prNumber } = ctx;
+  const commentFile = path.join(outDir, 'comment.md');
+  const rule = 'no UI files changed: no comment is created, and an existing ui-diff comment is reduced to a one-line note';
+  if (ctx.dryRun || values['no-comment']) {
+    writeRedacted(commentFile, noUiChangeComment(report, cfg.comment));
+    log.info(rule);
+    print({ dryRun: ctx.dryRun, pr: prNumber ?? null, noUiChange: true, publishable: true, problems: [], wouldUpload: [], comment: path.relative(process.cwd(), commentFile), posted: false, note: rule });
+    return;
+  }
+  const repoSlug = (values.repo as string | undefined) ?? (info ? `${info.owner}/${info.repo}` : undefined);
+  if (!repoSlug) throw new UiDiffError('Cannot tell which repository the PR belongs to', { hint: 'Pass --repo owner/name.' });
+  const client = createGhClient(info?.host);
+  const existing = await findStickyComment(client, repoSlug, prNumber!, cfg.comment.id);
+  const decision = publishDecision(report, existing, cfg.comment);
+  if (decision.action === 'skip') {
+    log.info(`not commenting: ${decision.reason}`);
+    print({ action: 'skipped', reason: decision.reason, noUiChange: true, pushed: false, images: 0 });
+    return;
+  }
+  if (decision.action !== 'note') return;
+  writeRedacted(commentFile, decision.body);
+  const { action, comment } = await upsertStickyComment(client, { repo: repoSlug, pr: prNumber!, body: decision.body, existing });
+  log.info(`comment ${action} (no UI files changed)${comment.url ? `: ${comment.url}` : ''}`);
+  print({ action, url: comment.url, noUiChange: true, pushed: false, images: 0 });
 }
 
 async function cmdPrune(values: Values): Promise<void> {

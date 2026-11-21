@@ -1,7 +1,8 @@
 import { exec } from './exec.js';
 import type { RemoteInfo } from './git.js';
 import { log, UiDiffError } from './log.js';
-import { stickyMarker } from './markdown.js';
+import { noUiChangeComment, stickyMarker } from './markdown.js';
+import { noUiChange, type Report } from './report.js';
 
 export interface Comment {
   id: number;
@@ -82,6 +83,18 @@ export async function findStickyComment(client: GhClient, repo: string, pr: numb
   const me = await client.currentLogin();
   const mine = comments.filter((c) => me && c.login === me);
   return (mine.length ? mine : comments)[(mine.length ? mine : comments).length - 1];
+}
+
+export type PublishDecision = { action: 'comment' } | { action: 'skip'; reason: string } | { action: 'note'; body: string };
+
+/**
+ * What publish does with a report. A PR whose changed files include no UI file gets no comment;
+ * if an earlier push left one, it is reduced to a one-line note so its old screenshots do not linger.
+ */
+export function publishDecision(report: Report, existing: Comment | undefined, opts: { id: string; title: string }): PublishDecision {
+  if (!noUiChange(report)) return { action: 'comment' };
+  if (!existing) return { action: 'skip', reason: 'no UI files changed and there is no ui-diff comment to update' };
+  return { action: 'note', body: noUiChangeComment(report, opts) };
 }
 
 export type UpsertAction = 'created' | 'updated' | 'unchanged';

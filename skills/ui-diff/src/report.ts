@@ -199,6 +199,11 @@ export function notCheckedReason(report: Report): string | undefined {
   return `${plural(d.uiFiles.length, 'UI file')} changed but none could be mapped to a route${why.length ? `: ${why.join('; ')}` : ''}`;
 }
 
+/** Detection ran and found no changed UI file, so there is nothing to show reviewers. */
+export function noUiChange(report: Report): boolean {
+  return report.captures.length === 0 && report.detect !== undefined && report.detect.uiFiles.length === 0;
+}
+
 export function notCheckedNotice(reason: string): string {
   return `**Nothing was checked.** ${reason[0].toUpperCase()}${reason.slice(1)}. This is not a visual all-clear.`;
 }

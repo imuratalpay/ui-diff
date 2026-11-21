@@ -6,7 +6,7 @@ import { CaptureSession, ensureBrowser, launchBrowser, routeUrl, type CaptureRec
 import { parseVariantFlag, pickThemes, pickViewports, resolveRoute, type ResolvedConfig, type ResolvedRoute, type Step, type ThemeConfig, type VariantSpec, type ViewportConfig } from './config.js';
 import { detectChanges, resolveBaseRef, type DetectResult } from './detect.js';
 import { composeCompare, diffPngs, focusBoxes } from './diff.js';
-import { git, gitCommonDir, mergeBase, revParse } from './git.js';
+import { git, gitCommonDir, mergeBase, revParse, shortSha } from './git.js';
 import { COLORS, composeRow, readPng, resizeToWidth, writePng } from './image.js';
 import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
@@ -256,10 +256,11 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
   };
 
   if (routes.length === 0) {
+    const shas = async (sha: string | undefined) => (sha ? { sha, shortSha: await shortSha(sha, cfg.repoRoot) } : {});
     const report: Report = {
       ...reportBase,
-      base: { label: baseRequest.ref ?? baseRequest.url ?? 'base', mode: baseRequest.url ? 'url' : 'worktree' },
-      head: { label: headRequest.ref ?? headRequest.url ?? 'working tree', mode: headRequest.url ? 'url' : 'worktree' },
+      base: { label: baseRequest.ref ?? baseRequest.url ?? 'base', mode: baseRequest.url ? 'url' : 'worktree', ...(await shas(baseRequest.ref)) },
+      head: { label: headRequest.ref ?? headRequest.url ?? 'working tree', mode: headRequest.url ? 'url' : 'worktree', ...(await shas(detection?.head.sha)) },
       captures: [],
       variants: [],
       motion: [],

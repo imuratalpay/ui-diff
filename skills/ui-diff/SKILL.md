@@ -152,6 +152,8 @@ node "$SKILL/bin/ui-diff.mjs" publish --pr <n>
 - Exit code 3 means git could not read or push the repository (no push access, e.g. a fork, or
   missing git credentials; the error says which): use `--no-upload` for a text-only comment, or
   `--no-comment` to upload and print the markdown without posting.
+- When the report has no changed UI file, `publish` uploads nothing and creates no comment; an
+  existing sticky comment is reduced to one line ("no UI files changed in <sha>").
 - No PR yet: use `render` (or `publish --dry-run`) to produce the comment and offer to post once
   the PR exists.
 

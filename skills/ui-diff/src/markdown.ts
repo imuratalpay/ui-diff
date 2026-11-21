@@ -321,10 +321,20 @@ function renderOnce(report: Report, opts: RenderOptions): string {
     .filter(Boolean)
     .join(' · ');
   out.push(`<sub>${footer}</sub>`);
-  const meta = { head: report.head.sha ?? report.head.url ?? null, base: report.base.sha ?? report.base.url ?? null, createdAt: report.createdAt };
-  out.push(`<!-- ui-diff:meta ${JSON.stringify(meta)} -->`);
+  out.push(metaLine(report));
   if (compact >= 3) out.push('', '<sub>Some details were omitted to fit GitHub’s comment size limit; see `.ui-diff/report.json`.</sub>');
   return `${out.join('\n')}\n`;
+}
+
+function metaLine(report: Report): string {
+  const meta = { head: report.head.sha ?? report.head.url ?? null, base: report.base.sha ?? report.base.url ?? null, createdAt: report.createdAt };
+  return `<!-- ui-diff:meta ${JSON.stringify(meta)} -->`;
+}
+
+/** One-line replacement for an existing sticky comment once the PR no longer changes UI files. */
+export function noUiChangeComment(report: Report, opts: { id: string; title: string }): string {
+  const head = report.head.shortSha ?? report.head.sha?.slice(0, 7) ?? report.head.label;
+  return `${stickyMarker(opts.id)}\n### ${opts.title} — no UI files changed in ${code(head)}\n${metaLine(report)}\n`;
 }
 
 /** Renders the sticky PR comment, dropping detail in tiers until it fits GitHub's size limit. */

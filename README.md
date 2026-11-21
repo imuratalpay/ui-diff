@@ -185,7 +185,9 @@ Every command prints JSON on stdout (logs go to stderr), so agents can parse res
 [`examples/workflows/ui-diff.yml`](examples/workflows/ui-diff.yml) runs `run` and `publish` on
 every PR push with the repository's own `GITHUB_TOKEN` (`contents: write` for the assets branch,
 `pull-requests: write` for the comment). It expects the skill committed into the app repository
-(`./install.sh --claude --project <app>`), skips fork PRs, and uses the automatic summary.
+(`./install.sh --claude --project <app>`), skips fork PRs, and uses the automatic summary. On PRs
+whose changed files include no UI file it posts nothing; a sticky comment from an earlier push is
+reduced to a one-line "no UI files changed" note.
 
 ## Configure
 

@@ -69,6 +69,8 @@ jobs:
         # env:
         #   VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
 
+      # When no changed file is a UI file, publish posts nothing; a sticky comment left by an earlier
+      # push is reduced to one line ("no UI files changed in <sha>") so its old screenshots go away.
       - name: Publish the sticky comment
         run: node "$SKILL/bin/ui-diff.mjs" publish --pr ${{ github.event.pull_request.number }}
 
