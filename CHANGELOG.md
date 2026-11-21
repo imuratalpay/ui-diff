@@ -36,7 +36,9 @@ cannot be trusted.
 - Causes are told from effects: only authored changes, and size or position changes nothing
   measured explains, count. A size, a move, a parent that grew or a sibling that shifted because of
   a cause is listed under it as its effect, and `report.json` gives every change its kind and every
-  effect its cause.
+  effect its cause. An element's own text or image explains its resize, and a sibling that resized
+  for a measured reason explains a neighbour it squeezed or wrapped in the same row; a longer label
+  is one change, with the wrapped link beside it among its effects.
 - Every changed pixel area is named after the element it is in, with the changes that explain it.
   Areas nothing measured explains are listed apart.
 - Each measured change is verified before it is shown: it needs at least

@@ -4,7 +4,7 @@
     "name": "ui-diff",
     "version": "2.0.0"
   },
-  "createdAt": "2026-11-21T21:06:40.518Z",
+  "createdAt": "2026-11-21T22:04:25.443Z",
   "routes": [
     {
       "path": "/",
@@ -3653,49 +3653,49 @@
     }
   ],
   "timings": {
-    "totalMs": 29371,
-    "detectMs": 45,
+    "totalMs": 29589,
+    "detectMs": 47,
     "prepare": {
-      "wallMs": 453,
+      "wallMs": 458,
       "base": {
         "mode": "worktree",
-        "checkoutMs": 16,
+        "checkoutMs": 17,
         "install": {
           "kind": "none",
           "ms": 0
         },
         "bootMs": 425,
-        "totalMs": 445
+        "totalMs": 447
       },
       "head": {
         "mode": "worktree",
-        "checkoutMs": 34,
+        "checkoutMs": 40,
         "install": {
           "kind": "none",
           "ms": 0
         },
-        "bootMs": 413,
-        "totalMs": 450
+        "bootMs": 411,
+        "totalMs": 455
       }
     },
-    "browserMs": 40,
+    "browserMs": 39,
     "capture": {
-      "ms": 13723,
+      "ms": 13780,
       "count": 8,
       "slowest": {
         "id": "home__mobile__light",
         "side": "base",
-        "ms": 1757
+        "ms": 1750
       }
     },
-    "diffMs": 4202,
+    "diffMs": 4271,
     "extras": {
-      "variantsMs": 6400,
-      "motionMs": 4475,
-      "tokensMs": 9,
-      "a11yMs": 1108,
-      "styleDiffMs": 15,
-      "elementMapMs": 252
+      "variantsMs": 6474,
+      "motionMs": 4485,
+      "tokensMs": 10,
+      "a11yMs": 1126,
+      "styleDiffMs": 16,
+      "elementMapMs": 259
     }
   }
 }

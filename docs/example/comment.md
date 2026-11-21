@@ -247,7 +247,7 @@
 
 </details>
 
-<details><summary>Capture settings and timing · ⏱ 29s</summary>
+<details><summary>Capture settings and timing · ⏱ 30s</summary>
 
 | | Base | Head |
 |---|---|---|
@@ -264,7 +264,7 @@
 
 **Timing**
 
-⏱ 29s total · detect 0.0s · prepare 0.5s (base: none 0.0s, boot 0.4s ‖ head: none 0.0s, boot 0.4s) · browser 0.0s · capture 14s (8 screenshots, slowest 1.8s) · diff 4.2s · variants 6.4s · motion 4.5s · a11y 1.1s · tokens 0.0s · element map 0.3s · style diff 0.0s
+⏱ 30s total · detect 0.0s · prepare 0.5s (base: none 0.0s, boot 0.4s ‖ head: none 0.0s, boot 0.4s) · browser 0.0s · capture 14s (8 screenshots, slowest 1.8s) · diff 4.3s · variants 6.5s · motion 4.5s · a11y 1.1s · tokens 0.0s · element map 0.3s · style diff 0.0s
 
 | Phase | Time | |
 |---|---|---|
@@ -274,16 +274,16 @@
 | prepare | 0.5s | base and head at the same time (wall clock) |
 | browser | 0.0s | Chromium check and launch |
 | capture | 14s | 8 screenshots · slowest `home__mobile__light` (base) 1.8s |
-| diff | 4.2s | pixel diffs and composites |
-| variants | 6.4s | variant screenshots |
+| diff | 4.3s | pixel diffs and composites |
+| variants | 6.5s | variant screenshots |
 | motion | 4.5s | motion clips |
 | a11y | 1.1s | axe and focus order (during capture) and the delta |
 | tokens | 0.0s | the token audit |
 | element map | 0.3s | element maps of every capture (taken during capture) |
 | style diff | 0.0s | matching elements, measuring style changes, naming changed areas |
-| total | 29s | wall clock until the report was written |
+| total | 30s | wall clock until the report was written |
 
 </details>
 
-<sub>ui-diff 2.0.0 · base `6737326` · head `cc13cab` · full report: [report.json](report.json) · rendered locally — nothing uploaded · generated 2026-11-21 21:06:40 UTC</sub>
-<!-- ui-diff:meta {"head":"cc13cab81ca4c056ebe8ed861cce6747f2495e59","base":"6737326b2e051665eb7b14a33d39acee32ff22de","createdAt":"2026-11-21T21:06:40.518Z"} -->
+<sub>ui-diff 2.0.0 · base `6737326` · head `cc13cab` · full report: [report.json](report.json) · rendered locally — nothing uploaded · generated 2026-11-21 22:04:25 UTC</sub>
+<!-- ui-diff:meta {"head":"cc13cab81ca4c056ebe8ed861cce6747f2495e59","base":"6737326b2e051665eb7b14a33d39acee32ff22de","createdAt":"2026-11-21T22:04:25.443Z"} -->
