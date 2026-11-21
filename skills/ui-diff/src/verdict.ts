@@ -113,7 +113,8 @@ export function verdict(report: Report): Verdict {
   if (report.notComparable) return { kind, text: `Changes found, but captures were not comparable${failed ? `; ${failed}` : ''}` };
   const routes = measurements(report);
   const measured = routes.filter((r) => r.rows.length);
-  const count = measured.reduce((n, r) => n + r.rows.length, 0);
+  // One element whose change reads differently per theme or viewport is still one change.
+  const count = measured.reduce((n, r) => n + new Set(r.rows.map((row) => `${row.name}\u0000${row.selector}`)).size, 0);
   const pixelOnly = new Set(changed.filter((c) => c.status === 'changed' && !measured.some((r) => r.route === c.route.path)).map((c) => c.route.path)).size;
   const parts: string[] = [];
   if (count) parts.push(`${plural(count, 'measured change')} on ${plural(measured.length, 'route')}`);

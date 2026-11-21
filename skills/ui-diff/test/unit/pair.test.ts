@@ -26,6 +26,17 @@ describe('still pair and blink of a changed area', () => {
     assert.ok(magenta > 2 * 2 * (40 + 20), `the region outline is drawn on both panels (${magenta} px)`);
   });
 
+  it('thickens the outline when a wide crop will be scaled down', () => {
+    // A 2px line scaled to half blends into a pale 1px line; it should stay a saturated one.
+    const saturated = (png: PNG) => {
+      let n = 0;
+      for (let i = 0; i < png.data.length; i += 4) if (png.data[i] > 220 && png.data[i + 1] < 40 && png.data[i + 2] > 90 && png.data[i + 2] < 170) n++;
+      return n;
+    };
+    const shrunk = composePair(diff, box, labels, { highlight: '#FF0080', scale: 1, maxWidth: 160 });
+    assert.ok(saturated(shrunk) > 60, `the outline survives the scale-down (${saturated(shrunk)} saturated px)`);
+  });
+
   it('makes two frames of the same size and a looping two-frame GIF', () => {
     const [a, b] = blinkFrames(diff, box, labels, { highlight: '#FF0080', scale: 1, maxWidth: 800 });
     assert.deepEqual([a.width, a.height], [b.width, b.height]);

@@ -283,8 +283,8 @@ export function clipToFocus(box: Box, focus: Box[] | undefined): Box {
 }
 
 /** Base and head crops of one area, each with the changed regions inside it outlined. */
-function outlinedCrops(diff: DiffOutcome, box: Box, highlight: RGBA, scale: number): [PNG, PNG] {
-  const stroke = Math.max(2, Math.round(2 * scale));
+function outlinedCrops(diff: DiffOutcome, box: Box, highlight: RGBA, scale: number, shrink = 1): [PNG, PNG] {
+  const stroke = Math.max(2, Math.round(2 * scale * shrink));
   return [diff.paddedBefore, diff.paddedAfter].map((image) => {
     const out = crop(image, box);
     for (const region of diff.regions) {
@@ -300,7 +300,9 @@ function outlinedCrops(diff: DiffOutcome, box: Box, highlight: RGBA, scale: numb
  * readers who cannot compare a blinking image.
  */
 export function composePair(diff: DiffOutcome, box: Box, labels: { before: string; after: string }, opts: { highlight: string; scale: number; maxWidth?: number; upscaleBelow?: number }): PNG {
-  let [before, after] = outlinedCrops(diff, box, parseHexColor(opts.highlight), opts.scale);
+  // Wide crops are scaled down to fit maxWidth; a thicker outline stays visible after that.
+  const shrink = opts.maxWidth ? Math.max(1, (2 * box.width) / opts.maxWidth) : 1;
+  let [before, after] = outlinedCrops(diff, box, parseHexColor(opts.highlight), opts.scale, shrink);
   if (opts.upscaleBelow && before.width < opts.upscaleBelow) {
     const target = Math.min(opts.upscaleBelow, before.width * 2);
     before = resizeToWidth(before, target);
@@ -317,7 +319,7 @@ export function composePair(diff: DiffOutcome, box: Box, labels: { before: strin
 
 /** The two frames of a blink GIF of one area: base, then head, labelled, the same size. */
 export function blinkFrames(diff: DiffOutcome, box: Box, labels: { before: string; after: string }, opts: { highlight: string; scale: number; maxWidth: number }): [PNG, PNG] {
-  const [before, after] = outlinedCrops(diff, box, parseHexColor(opts.highlight), opts.scale);
+  const [before, after] = outlinedCrops(diff, box, parseHexColor(opts.highlight), opts.scale, Math.max(1, box.width / opts.maxWidth));
   const width = Math.min(before.width, opts.maxWidth);
   return [
     composeRow([{ image: resizeToWidth(before, width), label: labels.before, accent: COLORS.before }]),

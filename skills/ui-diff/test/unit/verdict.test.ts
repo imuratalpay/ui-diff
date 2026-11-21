@@ -47,6 +47,9 @@ describe('verdict first', () => {
     failed.captures.push({ ...failed.captures[2], id: 'x', status: 'error', error: 'timeout' });
     failed.stats = computeStats(failed.captures);
     assert.equal(verdict(failed).text, '3 measured changes on 2 routes, 1 capture failed');
+    const perTheme = twoRoutes();
+    perTheme.captures[0].styleDiff!.changes.push(change('Sign up', 'padding', '6px 12px', '10px 18px'));
+    assert.equal(verdict(perTheme).text, '3 measured changes on 2 routes', 'one element changed differently on two captures is one change');
     const unverified = twoRoutes();
     unverified.captures[1].styleDiff!.changes[0] = { ...unverified.captures[1].styleDiff!.changes[0], verified: false, unverified: ['no changed pixels in its area'] };
     assert.equal(verdict(unverified).text, '2 measured changes on 1 route, pixel changes on 1 more route', 'unverified changes are not counted');
