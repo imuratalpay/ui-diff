@@ -163,7 +163,8 @@ node "$SKILL/bin/ui-diff.mjs" publish --pr <n>
   missing git credentials; the error says which): use `--no-upload` for a text-only comment, or
   `--no-comment` to upload and print the markdown without posting.
 - When the report has no changed UI file, `publish` uploads nothing and creates no comment; an
-  existing sticky comment is reduced to one line ("no UI files changed in <sha>").
+  existing sticky comment gets "no UI files changed in <sha>" as its top line, with the last result
+  that had UI changes kept below it, collapsed.
 - No PR yet: use `render` (or `publish --dry-run`) to produce the comment and offer to post once
   the PR exists.
 

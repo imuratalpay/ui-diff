@@ -485,10 +485,51 @@ function metaLine(report: Report): string {
   return `<!-- ui-diff:meta ${JSON.stringify(meta)} -->`;
 }
 
-/** One-line replacement for an existing sticky comment once the PR no longer changes UI files. */
-export function noUiChangeComment(report: Report, opts: { id: string; title: string }): string {
+const LAST_RESULT = /<!-- ui-diff:last-result head=(\S*) -->/;
+const META = /<!-- ui-diff:meta (\{.*\}) -->/;
+
+/** The visible part of the last comment that showed UI changes, and its head, from a previous comment body. */
+function lastResult(previous: string | undefined): { body: string; head?: string } | undefined {
+  if (!previous) return undefined;
+  const kept = LAST_RESULT.exec(previous);
+  if (kept) {
+    const inner = previous.slice(kept.index + kept[0].length);
+    const end = inner.lastIndexOf('</details>');
+    return { body: (end >= 0 ? inner.slice(0, end) : inner).trim(), head: kept[1] || undefined };
+  }
+  const lines = previous.split('\n').filter((l) => !l.startsWith('<!-- ui-diff:sticky ') && !META.test(l));
+  const visible = lines.join('\n').trim();
+  if (!visible || /^### .* — no UI files changed in /.test(visible.split('\n')[0])) return undefined;
+  let head: string | undefined;
+  try {
+    head = (JSON.parse(META.exec(previous)?.[1] ?? '{}') as { head?: string | null }).head ?? undefined;
+  } catch {
+    head = undefined;
+  }
+  return { body: visible, head };
+}
+
+/**
+ * Replacement for an existing sticky comment once the PR no longer changes UI files: the top
+ * line says so, and the last result that had UI changes stays below it, collapsed.
+ */
+export function noUiChangeComment(report: Report, opts: { id: string; title: string }, previousBody?: string): string {
   const head = report.head.shortSha ?? report.head.sha?.slice(0, 7) ?? report.head.label;
-  return `${stickyMarker(opts.id)}\n### ${opts.title} — no UI files changed in ${code(head)}\n${metaLine(report)}\n`;
+  const out = [stickyMarker(opts.id), `### ${opts.title} — no UI files changed in ${code(head)}`, metaLine(report)];
+  const last = lastResult(previousBody);
+  if (last) {
+    const lastHead = last.head && /^[0-9a-f]{7,40}$/i.test(last.head) ? last.head.slice(0, 7) : undefined;
+    out.push(
+      '',
+      `<details><summary>Last result with UI changes${lastHead ? ` (head ${code(lastHead)})` : ''}</summary>`,
+      `<!-- ui-diff:last-result head=${lastHead ?? ''} -->`,
+      '',
+      last.body,
+      '',
+      '</details>',
+    );
+  }
+  return `${out.join('\n')}\n`;
 }
 
 /** Renders the sticky PR comment, dropping detail in tiers until it fits GitHub's size limit. */

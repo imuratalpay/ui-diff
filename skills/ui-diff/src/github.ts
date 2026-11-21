@@ -89,12 +89,12 @@ export type PublishDecision = { action: 'comment' } | { action: 'skip'; reason: 
 
 /**
  * What publish does with a report. A PR whose changed files include no UI file gets no comment;
- * if an earlier push left one, it is reduced to a one-line note so its old screenshots do not linger.
+ * if an earlier push left one, its top line says so and its last result stays below, collapsed.
  */
 export function publishDecision(report: Report, existing: Comment | undefined, opts: { id: string; title: string }): PublishDecision {
   if (!noUiChange(report)) return { action: 'comment' };
   if (!existing) return { action: 'skip', reason: 'no UI files changed and there is no ui-diff comment to update' };
-  return { action: 'note', body: noUiChangeComment(report, opts) };
+  return { action: 'note', body: noUiChangeComment(report, opts, existing.body) };
 }
 
 export type UpsertAction = 'created' | 'updated' | 'unchanged';

@@ -191,7 +191,8 @@ app install, no browser) and prints a `status`; when nothing maps to a route the
 successfully, and the capture job (app install, browser, `run`, `publish`) is skipped. It expects
 the skill committed into the app repository (`./install.sh --claude --project <app>`), skips fork
 PRs, and uses the automatic summary. On PRs whose changed files include no UI file it posts
-nothing; a sticky comment from an earlier push is reduced to a one-line "no UI files changed" note.
+nothing; on a sticky comment from an earlier push only the top line changes, to "no UI files
+changed in <sha>", and the last result with UI changes stays below it, collapsed.
 The workflow also documents an optional `paths:` filter for skipping the workflow on GitHub's side.
 
 ## Configure
