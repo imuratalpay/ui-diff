@@ -37,6 +37,20 @@ describe('still pair and blink of a changed area', () => {
     assert.ok(saturated(shrunk) > 60, `the outline survives the scale-down (${saturated(shrunk)} saturated px)`);
   });
 
+  it('thickens the outline of a wide area for the width a comment shows it at', () => {
+    const wide = diffPngs(image(1400, 200), image(1400, 200, [[100, 80, 1200, 20]]), { threshold: 0.1, includeAA: false, minChangedPixels: 8, highlight: '#FF0080', alignShifts: false });
+    const pair = composePair(wide, { x: 50, y: 40, width: 1300, height: 100 }, labels, { highlight: '#FF0080', scale: 1 });
+    const column = 300;
+    let thickest = 0;
+    let run = 0;
+    for (let y = 0; y < pair.height; y++) {
+      const i = (y * pair.width + column) * 4;
+      run = pair.data[i] === 255 && pair.data[i + 1] === 0 && pair.data[i + 2] === 128 ? run + 1 : 0;
+      thickest = Math.max(thickest, run);
+    }
+    assert.ok(thickest >= 4, `a 2600px pair shown at about 900px needs more than a 2px line (got ${thickest}px)`);
+  });
+
   it('makes two frames of the same size and a looping two-frame GIF', () => {
     const [a, b] = blinkFrames(diff, box, labels, { highlight: '#FF0080', scale: 1, maxWidth: 800 });
     assert.deepEqual([a.width, a.height], [b.width, b.height]);

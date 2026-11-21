@@ -270,6 +270,9 @@ export function composeCompare(
   );
 }
 
+/** About the width a PR comment column shows an image at, in px. */
+const SHOWN_WIDTH = 900;
+
 /** The crop box narrowed to the focus elements it touches, so a crop never shows unfocused neighbours. */
 export function clipToFocus(box: Box, focus: Box[] | undefined): Box {
   const touching = (focus ?? []).filter((f) => intersects(f, box));
@@ -300,8 +303,9 @@ function outlinedCrops(diff: DiffOutcome, box: Box, highlight: RGBA, scale: numb
  * readers who cannot compare a blinking image.
  */
 export function composePair(diff: DiffOutcome, box: Box, labels: { before: string; after: string }, opts: { highlight: string; scale: number; maxWidth?: number; upscaleBelow?: number }): PNG {
-  // Wide crops are scaled down to fit maxWidth; a thicker outline stays visible after that.
-  const shrink = opts.maxWidth ? Math.max(1, (2 * box.width) / opts.maxWidth) : 1;
+  // Wide pairs are scaled down to fit maxWidth, and again to the width a PR comment shows them at;
+  // a thicker outline stays visible after that.
+  const shrink = Math.max(1, (2 * box.width) / Math.min(opts.maxWidth ?? Infinity, SHOWN_WIDTH));
   let [before, after] = outlinedCrops(diff, box, parseHexColor(opts.highlight), opts.scale, shrink);
   if (opts.upscaleBelow && before.width < opts.upscaleBelow) {
     const target = Math.min(opts.upscaleBelow, before.width * 2);
@@ -319,7 +323,7 @@ export function composePair(diff: DiffOutcome, box: Box, labels: { before: strin
 
 /** The two frames of a blink GIF of one area: base, then head, labelled, the same size. */
 export function blinkFrames(diff: DiffOutcome, box: Box, labels: { before: string; after: string }, opts: { highlight: string; scale: number; maxWidth: number }): [PNG, PNG] {
-  const [before, after] = outlinedCrops(diff, box, parseHexColor(opts.highlight), opts.scale, Math.max(1, box.width / opts.maxWidth));
+  const [before, after] = outlinedCrops(diff, box, parseHexColor(opts.highlight), opts.scale, Math.max(1, box.width / Math.min(opts.maxWidth, SHOWN_WIDTH)));
   const width = Math.min(before.width, opts.maxWidth);
   return [
     composeRow([{ image: resizeToWidth(before, width), label: labels.before, accent: COLORS.before }]),
