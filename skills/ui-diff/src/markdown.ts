@@ -1,4 +1,5 @@
 import { categorize } from './a11y.js';
+import { describeDependency, type DependencyChange } from './deps.js';
 import { autoSummary, captureLabel, describeCapture, notCheckedNotice, notCheckedReason, type CaptureResult, type Report, type SideTiming, type Timings } from './report.js';
 
 export const MAX_COMMENT_LENGTH = 65000;
@@ -278,6 +279,24 @@ export function timingSection(t: Timings): string[] {
   return [`<details><summary>${timingLine(t)}</summary>`, '', '| Phase | Time | |', '|---|---|---|', ...rows.map(([phase, ms, note]) => `| ${phase} | ${duration(ms)} | ${cell(note)} |`), '', '</details>', ''];
 }
 
+function dependencyList(changes: DependencyChange[], limit: number): string {
+  const shown = changes.slice(0, limit).map((c) => code(describeDependency(c)));
+  return shown.join(', ') + (changes.length > limit ? `, …and ${changes.length - limit} more in \`report.json\`` : '');
+}
+
+/** Dependency changes: UI ones caused captures; the rest, and unreadable lockfiles, were not checked visually. */
+function dependencySection(report: Report, opts: RenderOptions): string[] {
+  const deps = report.detect?.dependencies ?? [];
+  const limit = (opts.compact ?? 0) >= 2 ? 5 : 15;
+  const out: string[] = [];
+  const ui = deps.filter((d) => d.ui);
+  const other = deps.filter((d) => !d.ui);
+  if (ui.length) out.push(`UI dependency changes (routes captured because of them): ${dependencyList(ui, limit)}`, '');
+  if (other.length) out.push(`Dependency changes not checked visually: ${dependencyList(other, limit)}`, '');
+  for (const file of report.detect?.unparsedLockfiles ?? []) out.push(`${code(file)} changed, but its packages could not be read, so UI packages in it were not checked.`, '');
+  return out;
+}
+
 function unmatchedSection(report: Report): string[] {
   const files = report.detect?.unmatched ?? [];
   if (files.length === 0) return [];
@@ -444,7 +463,7 @@ function renderOnce(report: Report, opts: RenderOptions): string {
     out.push(`<details><summary>Unchanged (${unchanged.length})</summary>`, '', ...list, '', '</details>', '');
   }
   out.push(...variantSection(report, opts), ...motionSection(report, opts), ...a11ySection(report, opts), ...tokenSection(report, opts));
-  out.push(...warningsSection(report, opts), ...unmatchedSection(report));
+  out.push(...warningsSection(report, opts), ...unmatchedSection(report), ...dependencySection(report, opts));
   const notCaptured = [...(report.detect?.skippedRoutes ?? []), ...(report.detect?.needsExample ?? []).map((n) => n.route)];
   if (notCaptured.length) out.push(`<sub>Affected but not captured: ${notCaptured.map(code).join(', ')}</sub>`, '');
   const cut = report.captures.filter((c) => c.truncated);

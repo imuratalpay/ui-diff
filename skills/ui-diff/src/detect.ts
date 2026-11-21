@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveRoute, type ResolvedConfig, type ResolvedRoute } from './config.js';
 import { inferFromPath, routeUnder } from './conventions.js';
+import { describeDependency, diffDependencies, isDependencyFile, type DependencyChange, type DependencyDiff } from './deps.js';
 import { changedFiles, defaultBaseRef, git, lsTree, mergeBase, readBlobs, revParse, type ChangedFile } from './git.js';
 import { firstMatch, matchAny } from './glob.js';
 import { addAssetMentions, aliasesFromPackageImports, aliasesFromTsconfig, buildReverseGraph, findEntries, isAssetFile, isSourceFile, parseJsonc, tsconfigLinks, type ResolveContext } from './imports.js';
@@ -17,6 +18,10 @@ export interface RouteHit {
 
 export interface MappingResult {
   uiFiles: string[];
+  /** Dependency changes in the app's package.json and lockfiles; `ui` ones made every route (or detect.dependencyRoutes) affected. */
+  dependencies: DependencyChange[];
+  /** Changed lockfiles whose packages could not be compared. */
+  unparsedLockfiles: string[];
   routes: RouteHit[];
   skippedRoutes: RouteHit[];
   unmatched: string[];
@@ -37,6 +42,7 @@ export interface MappingInput {
   changed: ChangedFile[];
   headFiles: string[];
   readFiles: (paths: string[]) => Promise<Map<string, string>>;
+  dependencies?: DependencyDiff;
 }
 
 const RANK: Record<Confidence, number> = { high: 0, medium: 1, low: 2 };
@@ -225,6 +231,12 @@ export async function mapChangesToRoutes(input: MappingInput): Promise<MappingRe
   for (const file of globalChanged) {
     for (const route of knownRoutes()) addHit(route, `app-wide file ${file} changed`, 'medium');
   }
+  const uiDeps = (input.dependencies?.changes ?? []).filter((d) => d.ui);
+  if (uiDeps.length) {
+    const listed = uiDeps.slice(0, 3).map(describeDependency).join(', ') + (uiDeps.length > 3 ? `, +${uiDeps.length - 3} more` : '');
+    const targets = cfg.detect.dependencyRoutes ? cfg.detect.dependencyRoutes.map(routeFor) : knownRoutes();
+    for (const route of targets) addHit(route, `UI dependency changed: ${listed}`, 'medium');
+  }
 
   const unmatched = uiFiles.filter((f) => !matchedFiles.has(f) && !deleted.has(f));
   const sorted = [...hits.values()].sort(
@@ -237,6 +249,8 @@ export async function mapChangesToRoutes(input: MappingInput): Promise<MappingRe
   if (sorted.length > max) notes.push(`${sorted.length - max} affected route(s) beyond detect.maxRoutes=${max} were not captured.`);
   return {
     uiFiles,
+    dependencies: input.dependencies?.changes ?? [],
+    unparsedLockfiles: input.dependencies?.unparsed ?? [],
     routes: sorted.slice(0, max),
     skippedRoutes: sorted.slice(max),
     unmatched,
@@ -278,13 +292,13 @@ async function workingTreeFiles(repo: string): Promise<string[]> {
   return [...new Set(out.split('\0').filter(Boolean))];
 }
 
-async function readFromDisk(repo: string, paths: string[]): Promise<Map<string, string>> {
+async function readFromDisk(repo: string, paths: string[], maxBytes = 512 * 1024): Promise<Map<string, string>> {
   const result = new Map<string, string>();
   await Promise.all(
     paths.map(async (p) => {
       try {
         const text = await readFile(path.join(repo, p), 'utf8');
-        if (text.length <= 512 * 1024) result.set(p, text);
+        if (text.length <= maxBytes) result.set(p, text);
       } catch {
         // deleted or unreadable
       }
@@ -300,6 +314,27 @@ export async function resolveBaseRef(repo: string, base: string | undefined): Pr
   return fallback;
 }
 
+/** package.json files and lockfiles in the app's directory or above it (a monorepo root's). */
+function governsApp(file: string, dirRel: string): boolean {
+  const dir = path.posix.dirname(file);
+  return dir === '.' || dir === dirRel || dirRel.startsWith(`${dir}/`);
+}
+
+/** Lockfiles are far larger than source files, so they are read without the usual size cap. */
+const DEPENDENCY_FILE_MAX_BYTES = 64 * 1024 * 1024;
+
+async function changedDependencies(cfg: ResolvedConfig, changed: ChangedFile[], refs: { base: string; head?: string }): Promise<DependencyDiff> {
+  const files = changed.filter((f) => f.status !== 'R' && isDependencyFile(f.path) && governsApp(f.path, cfg.dirRel)).map((f) => f.path);
+  if (files.length === 0) return { changes: [], unparsed: [] };
+  const repo = cfg.repoRoot;
+  const base = await readBlobs(refs.base, files, repo, DEPENDENCY_FILE_MAX_BYTES);
+  const head = refs.head ? await readBlobs(refs.head, files, repo, DEPENDENCY_FILE_MAX_BYTES) : await readFromDisk(repo, files, DEPENDENCY_FILE_MAX_BYTES);
+  return diffDependencies(
+    files.map((file) => ({ file, base: base.get(file), head: head.get(file) })),
+    cfg.detect.uiPackages,
+  );
+}
+
 export async function detectChanges(cfg: ResolvedConfig, opts: { base?: string; head?: string }): Promise<DetectResult> {
   const repo = cfg.repoRoot;
   const baseRef = await resolveBaseRef(repo, opts.base);
@@ -310,7 +345,8 @@ export async function detectChanges(cfg: ResolvedConfig, opts: { base?: string; 
   const headFiles = headSha ? await lsTree(headSha, repo) : await workingTreeFiles(repo);
   const readFiles = headSha ? (paths: string[]) => readBlobs(headSha, paths, repo) : (paths: string[]) => readFromDisk(repo, paths);
   log.debug(`changed files: ${changed.length}, files at head: ${headFiles.length}`);
-  const mapping = await mapChangesToRoutes({ cfg, changed, headFiles, readFiles });
+  const dependencies = await changedDependencies(cfg, changed, { base: mb, head: headSha });
+  const mapping = await mapChangesToRoutes({ cfg, changed, headFiles, readFiles, dependencies });
   return {
     ...mapping,
     base: { ref: baseRef, sha: baseSha },
@@ -340,6 +376,8 @@ export function detectSummary(result: DetectResult): Record<string, unknown> {
     mergeBase: result.mergeBase,
     changedFiles: result.changedFiles.length,
     uiFiles: result.uiFiles,
+    dependencies: result.dependencies,
+    unparsedLockfiles: result.unparsedLockfiles,
     routes: result.routes.map((h) => ({ path: h.route.path, name: h.route.name, configured: h.route.configured, confidence: h.confidence, reasons: h.reasons })),
     skippedRoutes: result.skippedRoutes.map((h) => h.route.path),
     unmatched: result.unmatched,

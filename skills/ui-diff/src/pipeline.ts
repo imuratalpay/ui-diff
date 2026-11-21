@@ -369,7 +369,15 @@ async function prepareStage(opts: RunOptions, detected: Detected, runStart: Date
       return { path: r.path, name: r.name, reasons: hit?.reasons ?? [opts.routes?.length ? 'requested' : 'configured'], confidence: hit?.confidence ?? 'high' };
     }),
     detect: detection
-      ? { uiFiles: detection.uiFiles, unmatched: detection.unmatched, skippedRoutes: detection.skippedRoutes.map((h) => h.route.path), needsExample: detection.needsExample, notes: detection.notes }
+      ? {
+          uiFiles: detection.uiFiles,
+          unmatched: detection.unmatched,
+          skippedRoutes: detection.skippedRoutes.map((h) => h.route.path),
+          needsExample: detection.needsExample,
+          notes: detection.notes,
+          ...(detection.dependencies.length ? { dependencies: detection.dependencies } : {}),
+          ...(detection.unparsedLockfiles.length ? { unparsedLockfiles: detection.unparsedLockfiles } : {}),
+        }
       : undefined,
     viewports: viewports.map((v) => v.name),
     themes: themes.map((t) => t.name),

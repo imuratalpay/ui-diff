@@ -1,4 +1,5 @@
 import type { A11yIssue, FocusDelta } from './a11y.js';
+import { describeDependency, type DependencyChange } from './deps.js';
 import type { Box } from './image.js';
 import { UiDiffError } from './log.js';
 import type { AggregatedFinding } from './tokens.js';
@@ -162,7 +163,16 @@ export interface Report {
   base: SideSummary;
   head: SideSummary;
   routes: Array<{ path: string; name: string; reasons: string[]; confidence: string }>;
-  detect?: { uiFiles: string[]; unmatched: string[]; skippedRoutes: string[]; needsExample: Array<{ file: string; route: string }>; notes: string[] };
+  detect?: {
+    uiFiles: string[];
+    unmatched: string[];
+    skippedRoutes: string[];
+    needsExample: Array<{ file: string; route: string }>;
+    notes: string[];
+    /** Changed dependencies; `ui` ones made routes affected, the others were not checked visually. */
+    dependencies?: DependencyChange[];
+    unparsedLockfiles?: string[];
+  };
   viewports: string[];
   themes: string[];
   captures: CaptureResult[];
@@ -376,6 +386,11 @@ export function autoSummary(report: Report): string {
   const still = report.motion.filter((m) => m.warnings?.some((w) => w.startsWith('no motion detected')));
   if (still.length) lines.push(`- No motion detected in ${still.map((m) => `\`${m.route.path}\``).join(', ')} (single-frame clip).`);
   if (report.motionSkipped?.length) lines.push(`- Motion not recorded for unchanged routes: ${report.motionSkipped.map((r) => `\`${r}\``).join(', ')}.`);
+  const deps = report.detect?.dependencies ?? [];
+  const uiDeps = deps.filter((d) => d.ui);
+  const otherDeps = deps.filter((d) => !d.ui);
+  if (uiDeps.length) lines.push(`- UI dependencies changed (${uiDeps.slice(0, 3).map(describeDependency).join(', ')}${uiDeps.length > 3 ? ', …' : ''}), so their routes were captured.`);
+  if (otherDeps.length) lines.push(`- ${otherDeps.length} dependency change${otherDeps.length === 1 ? '' : 's'} not checked visually (${otherDeps.slice(0, 3).map(describeDependency).join(', ')}${otherDeps.length > 3 ? ', …' : ''}).`);
   if (report.detect?.skippedRoutes.length) lines.push(`- Not captured (over the route limit): ${report.detect.skippedRoutes.map((r) => `\`${r}\``).join(', ')}.`);
   if (report.detect?.needsExample.length) lines.push(`- Not captured (dynamic routes need example values): ${report.detect.needsExample.map((n) => `\`${n.route}\``).join(', ')}.`);
   return lines.join('\n');

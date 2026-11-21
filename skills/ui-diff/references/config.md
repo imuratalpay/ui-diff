@@ -85,6 +85,10 @@ them). Each server runs in its own process group; only those processes are stopp
 
 `globalFiles`: globs whose changes affect every route (global CSS, theme, root layout).
 
+Dependency changes are compared by declared range (`package.json`) and resolved version
+(lockfiles). Other packages are listed in the comment as "not checked visually"; a changed
+`bun.lockb` (binary) is listed as unreadable.
+
 `detect`:
 
 | Key | Default | Notes |
@@ -93,6 +97,8 @@ them). Each server runs in its own process group; only those processes are stopp
 | `imports` | `true` | Follow imports from changed files to pages, route files and layouts (a component used only in `app/layout.tsx`, `__root.tsx` or `pages/_app.tsx` maps to every route that layout wraps). |
 | `aliases` | `{}` | Extra import aliases, e.g. `{ "~/": "src/" }`. tsconfig/jsconfig `paths` are read automatically, including configs reached through `references` (Vite's `tsconfig.app.json`) and relative `extends`, and package.json `#` imports. |
 | `maxRoutes` | `12` | Further routes are listed as "not captured". |
+| `uiPackages` | frameworks, CSS tooling, UI/icon/font/animation libraries | Package names (`*` wildcards: `@radix-ui/*`, `postcss-*`) whose version changes may change the UI. When one changes in the app's `package.json` or a lockfile above it (npm, pnpm, yarn, `bun.lock`), every known route is captured. Setting it replaces the default list (see the JSON Schema), so add your design-system packages next to the defaults you keep. |
+| `dependencyRoutes` | — | Routes to capture for a UI dependency change instead of every known route, e.g. `["/", "/pricing"]`. |
 | `include` / `exclude` | UI-ish extensions / tests, stories, build output, lockfiles | Which changed files count as UI. |
 
 ## Viewports and themes

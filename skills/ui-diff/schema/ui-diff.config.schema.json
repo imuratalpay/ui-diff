@@ -519,6 +519,71 @@
           "minimum": 1,
           "maximum": 9007199254740991
         },
+        "uiPackages": {
+          "default": [
+            "react",
+            "react-dom",
+            "next",
+            "vue",
+            "nuxt",
+            "svelte",
+            "@sveltejs/*",
+            "astro",
+            "@astrojs/*",
+            "solid-js",
+            "preact",
+            "@angular/*",
+            "@remix-run/*",
+            "react-router",
+            "react-router-dom",
+            "@tanstack/react-router",
+            "tailwindcss",
+            "@tailwindcss/*",
+            "postcss",
+            "postcss-*",
+            "autoprefixer",
+            "lightningcss",
+            "sass",
+            "less",
+            "styled-components",
+            "@emotion/*",
+            "@stylexjs/*",
+            "@vanilla-extract/*",
+            "@pandacss/*",
+            "class-variance-authority",
+            "tailwind-merge",
+            "@radix-ui/*",
+            "@headlessui/*",
+            "@mui/*",
+            "@chakra-ui/*",
+            "@mantine/*",
+            "antd",
+            "@ant-design/*",
+            "bootstrap",
+            "daisyui",
+            "lucide-react",
+            "@heroicons/*",
+            "@fortawesome/*",
+            "framer-motion",
+            "motion",
+            "@fontsource/*",
+            "@fontsource-variable/*"
+          ],
+          "description": "Package names (* wildcards) whose version changes may change the UI; replaces the default list, so keep the entries you still want",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dependencyRoutes": {
+          "description": "Routes captured when a UI package changes; default: every known route",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "starts_with",
+            "pattern": "^\\/.*"
+          }
+        },
         "include": {
           "default": [
             "**/*.{html,htm,css,scss,sass,less,styl,pcss,vue,svelte,astro,jsx,tsx,mdx,js,ts,mjs,cjs}",

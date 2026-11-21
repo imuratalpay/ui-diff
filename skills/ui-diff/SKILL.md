@@ -64,6 +64,9 @@ The JSON lists each route with `reasons` and `confidence`, plus:
   them with `--routes`.
 - `needsExample`: dynamic routes (`/blog/[slug]`). Find a real id and pass `--routes /blog/hello`.
 - `notes`: e.g. routes beyond `detect.maxRoutes`.
+- `dependencies`: changed packages from `package.json` and lockfiles. A `ui: true` one (React,
+  Tailwind, a component library; `detect.uiPackages`) makes every route affected; mention the
+  others as not checked visually.
 
 If no UI file changed, say so and stop; do not produce an empty report. If UI files changed but
 none maps to a route (`run` prints `"status": "nothing-mapped"` and a `notChecked` reason), nothing

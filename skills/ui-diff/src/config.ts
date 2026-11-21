@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { DEFAULT_UI_PACKAGES } from './deps.js';
 import { UiDiffError } from './log.js';
 import { realpathIfExists } from './paths.js';
 
@@ -250,6 +251,14 @@ const DetectSchema = z
     imports: z.boolean().default(true),
     aliases: z.record(z.string(), z.string()).default({}),
     maxRoutes: z.number().int().min(1).default(12),
+    uiPackages: z
+      .array(z.string())
+      .default(DEFAULT_UI_PACKAGES)
+      .describe('Package names (* wildcards) whose version changes may change the UI; replaces the default list, so keep the entries you still want'),
+    dependencyRoutes: z
+      .array(z.string().startsWith('/'))
+      .optional()
+      .describe('Routes captured when a UI package changes; default: every known route'),
     include: z
       .array(z.string())
       .default([
