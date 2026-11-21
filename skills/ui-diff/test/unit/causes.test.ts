@@ -49,7 +49,7 @@ function el(over: Over): StyledElement {
  * A centered hero row as in the CI run: the button grows by its padding, its row and the hero grow
  * with it, it moves up and left in the centered row, and the link beside it and the section below move.
  */
-function hero(o: { padding: string; background: string; width: number; height: number; text?: string; gap?: string }): StyledElement[] {
+function hero(o: { padding: string; background: string; width: number; height: number; text?: string; gap?: string; more?: { width: number; height: number } }): StyledElement[] {
   const grow = o.height - 40;
   const [pv, ph] = o.padding.split(' ');
   return [
@@ -57,7 +57,7 @@ function hero(o: { padding: string; background: string; width: number; height: n
     el({ tag: 'header', selector: 'header.hero', parent: 0, box: { x: 0, y: 0, width: 1000, height: 240 + grow } }),
     el({ tag: 'div', selector: 'div.actions', parent: 1, box: { x: 0, y: 160, width: 1000, height: o.height }, styles: { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: [o.gap ?? '16px', o.gap ?? '16px'] } }),
     el({ tag: 'a', selector: 'a.cta', name: "link 'Start free trial'", ownText: o.text ?? 'Start free trial', label: o.text ?? 'Start free trial', role: 'link', parent: 2, box: { x: 400 - (o.width - 109.5) / 2, y: 160, width: o.width, height: o.height }, styles: { padding: [pv, ph, pv, ph], backgroundColor: o.background, color: 'rgb(255, 255, 255)' } }),
-    el({ tag: 'a', selector: 'a.more', name: "link 'See how it works'", ownText: 'See how it works', label: 'See how it works', role: 'link', parent: 2, box: { x: 525.5 + (o.width - 109.5) / 2, y: 160 + (o.height - 24) / 2, width: 130, height: 24 } }),
+    el({ tag: 'a', selector: 'a.more', name: "link 'See how it works'", ownText: 'See how it works', label: 'See how it works', role: 'link', parent: 2, box: { x: 525.5 + (o.width - 109.5) / 2, y: 160 + (o.height - (o.more?.height ?? 24)) / 2, width: o.more?.width ?? 130, height: o.more?.height ?? 24 } }),
     el({ tag: 'section', selector: 'section.plans', ownText: 'Plans', parent: 0, box: { x: 0, y: 240 + grow, width: 1000, height: 460 } }),
   ];
 }
@@ -98,6 +98,25 @@ describe('causes and effects', () => {
     const { report: r, changes } = report(hero(BEFORE), hero({ ...BEFORE, text: 'Start your free trial', width: 151.5 }));
     assert.deepEqual(kinds(changes).filter((k) => k.startsWith('a.cta')), ['a.cta size effect ← h3:text', 'a.cta text cause', 'a.cta position effect ← h3:text']);
     assert.equal(verdict(r).text, '1 measured change on 1 route');
+  });
+
+  it('counts a longer label that wraps the link beside it as 1 change, the wrap under the text change', () => {
+    const { report: r, changes } = report(hero(BEFORE), hero({ ...BEFORE, text: 'Start your free 14-day trial', width: 195, more: { width: 109, height: 48 } }));
+    assert.deepEqual(kinds(changes).filter((k) => k.startsWith('a.more')), ['a.more size effect ← h3:text', 'a.more position effect ← h3:text']);
+    assert.equal(verdict(r).text, '1 measured change on 1 route');
+    const body = renderComment(r, { id: 'default', title: 'UI diff', link: (p) => p });
+    assert.match(body, /- `link 'Start free trial'` \(`a\.cta`\): text 'Start free trial' → 'Start your free 14-day trial' — desktop\n {2}- size 109\.5×40px → 195×40px, moved [^\n]* \(from the text change\)\n/);
+    assert.match(body, / {2}- `link 'See how it works'` \(`a\.more`\): size 130×24px → 109×48px, moved [^\n]*\n/);
+  });
+
+  it('keeps counting a sibling resize that nothing explains', () => {
+    const alone = report(hero(BEFORE), hero({ ...BEFORE, more: { width: 140, height: 24 } }));
+    assert.deepEqual(kinds(alone.changes).filter((k) => k.startsWith('a.more')), ['a.more size unexplained']);
+    assert.equal(verdict(alone.report).text, '1 measured change on 1 route');
+    // Two siblings that both resized without a cause do not explain each other.
+    const both = report(hero(BEFORE), hero({ ...BEFORE, width: 150, more: { width: 109, height: 48 } }));
+    assert.deepEqual(kinds(both.changes).filter((k) => / size /.test(k) && /^a\./.test(k)).sort(), ['a.cta size unexplained', 'a.more size unexplained']);
+    assert.equal(verdict(both.report).text, '2 measured changes on 1 route');
   });
 
   it('counts an image swap that changes size as 1 change', () => {

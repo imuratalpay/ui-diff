@@ -38,14 +38,21 @@ describe('causes and effects in a real run', { timeout: 300_000 }, () => {
     git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'base');
     commit('12px 18px', '#0b7a5b', 'padding-and-background');
     commit('12px 18px', '#2563eb', 'padding-only');
+    // A narrow actions row, then only a longer label: the link beside it wraps to two lines.
+    git('checkout', '-q', '-B', 'narrow', 'main');
+    writeFileSync(path.join(dir, 'app.css'), css('8px 14px', '#2563eb').replace('gap:16px}', 'gap:16px;width:320px;margin:0 auto}'));
+    git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qam', 'narrow');
+    git('checkout', '-q', '-B', 'label', 'narrow');
+    writeFileSync(path.join(dir, 'index.html'), HTML.replace('>Start free trial<', '>Start your free 14-day trial<'));
+    git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qam', 'label');
   });
 
   after(() => rmSync(dir, { recursive: true, force: true }));
 
-  const run = async (head: string) => {
+  const run = async (head: string, base = 'main') => {
     const cfg = parseConfig({ startCommand: 'node serve.mjs --port {port}', routes: [{ path: '/', name: 'home', files: ['index.html', 'app.css'] }], viewports: [{ name: 'desktop', width: 1000, height: 700 }] }, { repoRoot: dir });
     const outDir = path.join(dir, '.ui-diff', head);
-    await runPipeline({ cfg, outDir, base: 'main', head, cache: false });
+    await runPipeline({ cfg, outDir, base, head, cache: false });
     return { report: JSON.parse(readFileSync(path.join(outDir, 'report.json'), 'utf8')) as Report, comment: readFileSync(path.join(outDir, 'comment.local.md'), 'utf8') };
   };
 
@@ -60,6 +67,16 @@ describe('causes and effects in a real run', { timeout: 300_000 }, () => {
     const effects = groups.filter((g) => g.kind === 'effect');
     assert.ok(effects.length >= 3 && effects.every((g) => g.cause === padding.id), JSON.stringify(effects.map((g) => [g.selector, g.property, g.cause])));
     assert.ok(effects.some((g) => g.selector !== 'a.cta' && g.property === 'size'), 'the row and the hero grew with it');
+  });
+
+  it('counts a longer label as 1, with its size and the link it wrapped under the text change', async () => {
+    const { report, comment } = await run('label', 'narrow');
+    assert.equal(comment.split('\n')[1], '### UI diff (local preview) — 1 measured change on 1 route');
+    assert.match(comment, /: text 'Start free trial' → 'Start your free 14-day trial' — desktop\n {2}- size [^\n]* \(from the text change\)\n/);
+    const text = report.measured!.find((g) => g.property === 'text')!;
+    const wrapped = report.measured!.filter((g) => g.selector === 'a.more');
+    assert.deepEqual(wrapped.map((g) => `${g.kind} ${g.property}`).sort(), ['effect position', 'effect size']);
+    assert.ok(wrapped.every((g) => g.cause === text.id), 'chained to the text change');
   });
 
   it('counts a padding-only change as 1', async () => {

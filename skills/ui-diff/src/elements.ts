@@ -400,6 +400,54 @@ export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: El
     sizeRoot.set(hi, cause ?? `h${hi}:size`);
   }
 
+  // A sibling that resized for a reason squeezes or wraps its neighbours in a flex or grid row, or
+  // in a line of inline content. Only explained siblings count: two siblings that resized for no
+  // measured reason do not explain each other.
+  const sharesLine = (hi: number) => {
+    const h = head.elements[hi];
+    const parent = h.parent != null ? head.elements[h.parent] : undefined;
+    return /flex|grid/.test(parent?.styles.display ?? '') || /^inline/.test(h.styles.display ?? '');
+  };
+  for (let round = 0, changed = true; changed && round < 5; round++) {
+    changed = false;
+    for (const [hi, r] of raw) {
+      if (!resized(r) || sizeCause.get(hi) || !sharesLine(hi)) continue;
+      const h = head.elements[hi];
+      let best: { id: string; amount: number } | undefined;
+      for (const s of childrenOf.get(h.parent ?? null) ?? []) {
+        if (s === hi) continue;
+        const sr = raw.get(s);
+        const id = sr ? sizeCause.get(s) : addedSet.has(s) ? subtreeId(head.elements, addedSet, s, 'h') : undefined;
+        const amount = sr ? Math.abs(sr.dw) + Math.abs(sr.dh) : Infinity;
+        if (id && (!best || amount > best.amount)) best = { id, amount };
+      }
+      for (const ri of match.removed) {
+        if (base.elements[ri].parent !== base.elements[r.pair.base].parent) continue;
+        const id = subtreeId(base.elements, removedSet, ri, 'b');
+        if (id) best = { id, amount: Infinity };
+      }
+      if (!best) continue;
+      sizeCause.set(hi, best.id);
+      sizeRoot.set(hi, best.id);
+      changed = true;
+    }
+  }
+  // Every cause chains to its root: an element credited with a child's or sibling's resize ends up
+  // under what caused that resize, once it has a cause.
+  const rootOf = (id: string) => {
+    const seen = new Set<string>();
+    for (let m = /^h(\d+):size$/.exec(id); m && sizeCause.get(Number(m[1])) && !seen.has(id); m = /^h(\d+):size$/.exec(id)) {
+      seen.add(id);
+      id = sizeCause.get(Number(m[1]))!;
+    }
+    return id;
+  };
+  for (const [hi, cause] of sizeCause) {
+    if (!cause) continue;
+    sizeCause.set(hi, rootOf(cause));
+    sizeRoot.set(hi, rootOf(cause));
+  }
+
   const out: ElementChange[] = [];
   for (const [hi, r] of raw) {
     const h = head.elements[hi];
