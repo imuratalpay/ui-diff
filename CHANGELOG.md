@@ -27,8 +27,8 @@ cannot be trusted.
   (test id, id, label or role and name; then text, position under a matched parent or selector;
   then place and size) and measures their style changes: box, type, color, shape, layout, content,
   size and position. The comment says `link 'Get started': padding 8px 14px → 10px 18px`.
-- Inherited values, moves caused by a sibling, containers that only grew with their children and
-  masked elements are left out. Added or removed subtrees are one entry.
+- Inherited values are reported where they changed, not on every descendant, masked elements are
+  left out, and added or removed subtrees are one entry.
 - Measured changes are one row per element, property and old → new value, with the variants it was
   seen on (`desktop, mobile · light, dark`); a value that differs by variant gets one row per value.
   The verdict counts these rows, `check` prints the same ones, and `report.json` keeps them under

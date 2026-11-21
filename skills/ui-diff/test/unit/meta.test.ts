@@ -35,6 +35,7 @@ describe('package metadata', () => {
     assert.match(front, /^name: ui-diff$/m);
     const description = /^description: (.+)$/m.exec(front)?.[1] ?? '';
     assert.ok(description.length > 80 && description.length <= 1024, `description length ${description.length}`);
+    assert.match(front, new RegExp(`^metadata:\n  version: "${VERSION.replace(/\./g, '\\.')}"$`, 'm'), 'the skill says which version it is');
   });
 
   it('accepts the example configuration in the repository', () => {
