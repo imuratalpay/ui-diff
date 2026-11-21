@@ -525,7 +525,7 @@ function tokenSection(report: Report, opts: RenderOptions): string[] {
     const lines = ['| Property | Value | Nearest token | Elements |', '|---|---|---|---|'];
     for (const f of rows.slice(0, limit)) {
       const more = f.count > f.selectors.length ? ` (+${f.count - f.selectors.length})` : '';
-      lines.push(`| ${f.property} | ${code(f.value)} | ${f.nearest ? code(f.nearest) : '—'} | ${cell(f.selectors.map(code).join(', '))}${more} |`);
+      lines.push(`| ${f.property} | ${code(f.value)} | ${f.nearest ? code(f.nearest) : 'no close token'} | ${cell(f.selectors.map(code).join(', '))}${more} |`);
     }
     if (rows.length > limit) lines.push(`| …${rows.length - limit} more in \`report.json\` | | | |`);
     return lines;

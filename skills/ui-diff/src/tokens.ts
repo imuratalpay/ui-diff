@@ -452,6 +452,57 @@ function srgbToOklab([r, g, b]: RGBAValue): [number, number, number] {
   return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
 }
 
+function srgbToLab([r, g, b]: RGBAValue): [number, number, number] {
+  const lin = (c: number) => {
+    const v = c / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const [lr, lg, lb] = [lin(r), lin(g), lin(b)];
+  // sRGB to XYZ, relative to the D65 white point.
+  const x = (0.4124564 * lr + 0.3575761 * lg + 0.1804375 * lb) / 0.95047;
+  const y = 0.2126729 * lr + 0.7151522 * lg + 0.072175 * lb;
+  const z = (0.0193339 * lr + 0.119192 * lg + 0.9503041 * lb) / 1.08883;
+  const f = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+  return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+}
+
+/** CIEDE2000 color difference of two CIELAB colors. */
+export function deltaE2000Lab([l1, a1, b1]: [number, number, number], [l2, a2, b2]: [number, number, number]): number {
+  const rad = Math.PI / 180;
+  const c1 = Math.hypot(a1, b1);
+  const c2 = Math.hypot(a2, b2);
+  const cMean7 = ((c1 + c2) / 2) ** 7;
+  const g = 0.5 * (1 - Math.sqrt(cMean7 / (cMean7 + 25 ** 7)));
+  const a1p = (1 + g) * a1;
+  const a2p = (1 + g) * a2;
+  const c1p = Math.hypot(a1p, b1);
+  const c2p = Math.hypot(a2p, b2);
+  const hue = (b: number, a: number) => (b === 0 && a === 0 ? 0 : ((Math.atan2(b, a) / rad) + 360) % 360);
+  const h1p = hue(b1, a1p);
+  const h2p = hue(b2, a2p);
+  const dL = l2 - l1;
+  const dC = c2p - c1p;
+  let dh = 0;
+  if (c1p * c2p !== 0) dh = Math.abs(h2p - h1p) <= 180 ? h2p - h1p : h2p - h1p > 180 ? h2p - h1p - 360 : h2p - h1p + 360;
+  const dH = 2 * Math.sqrt(c1p * c2p) * Math.sin((dh / 2) * rad);
+  const lMean = (l1 + l2) / 2;
+  const cMeanP = (c1p + c2p) / 2;
+  let hMean = h1p + h2p;
+  if (c1p * c2p !== 0) hMean = Math.abs(h1p - h2p) <= 180 ? (h1p + h2p) / 2 : h1p + h2p < 360 ? (h1p + h2p + 360) / 2 : (h1p + h2p - 360) / 2;
+  const t = 1 - 0.17 * Math.cos((hMean - 30) * rad) + 0.24 * Math.cos(2 * hMean * rad) + 0.32 * Math.cos((3 * hMean + 6) * rad) - 0.2 * Math.cos((4 * hMean - 63) * rad);
+  const sL = 1 + (0.015 * (lMean - 50) ** 2) / Math.sqrt(20 + (lMean - 50) ** 2);
+  const sC = 1 + 0.045 * cMeanP;
+  const sH = 1 + 0.015 * cMeanP * t;
+  const cMeanP7 = cMeanP ** 7;
+  const rT = -2 * Math.sqrt(cMeanP7 / (cMeanP7 + 25 ** 7)) * Math.sin(60 * Math.exp(-(((hMean - 275) / 25) ** 2)) * rad);
+  return Math.sqrt((dL / sL) ** 2 + (dC / sC) ** 2 + (dH / sH) ** 2 + rT * (dC / sC) * (dH / sH));
+}
+
+/** CIEDE2000 difference of two sRGB colors (alpha ignored). */
+export function deltaE2000(a: RGBAValue, b: RGBAValue): number {
+  return deltaE2000Lab(srgbToLab(a), srgbToLab(b));
+}
+
 /** Perceptual distance (OKLab ΔE × 100). */
 export function colorDistance(a: RGBAValue, b: RGBAValue): number {
   const [l1, a1, b1] = srgbToOklab(a);
@@ -493,15 +544,19 @@ function checkColor(value: string, ctx: AuditContext): { ok: boolean; display: s
   if (candidates.some((x) => channelMatch(x.c, rgba, ctx.colorTolerance))) return { ok: true, display };
   let best: { t: TokenValue; c: RGBAValue; d: number } | undefined;
   for (const x of candidates) {
-    const d = colorDistance(x.c, rgba);
+    if (Math.abs(x.c[3] - rgba[3]) > 0.02) continue;
+    const d = deltaE2000(x.c, rgba);
     if (!best || d < best.d) best = { ...x, d };
   }
-  const close = best && best.d <= NEAREST_COLOR_MAX_DISTANCE;
+  const close = best && best.d < NEAREST_COLOR_MAX_DELTA_E;
   return { ok: false, display, nearest: close ? `${best!.t.name} (${toHex(best!.c)})` : undefined };
 }
 
-/** Beyond this OKLab distance (×100) a "nearest token" suggestion is more misleading than helpful. */
-const NEAREST_COLOR_MAX_DISTANCE = 12;
+/**
+ * A token is suggested only below this CIEDE2000 difference: around 2 is just noticeable side by
+ * side, 5 is the same color family; past it the nearest token is a different color.
+ */
+export const NEAREST_COLOR_MAX_DELTA_E = 5;
 
 function checkPx(value: string, category: 'spacing' | 'radius' | 'fontSize' | 'lineHeight', ctx: AuditContext): { ok: boolean; display: string; nearest?: string } | undefined {
   const px = toPx(value);

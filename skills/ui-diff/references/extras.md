@@ -100,7 +100,7 @@ the browser, so `oklch()`, `color-mix()` and named colors compare correctly. The
 text color, background, border colors, margins/padding/gaps (auto-centering margins are ignored),
 radii, font size, weight and family. Only changed screens are audited, and with the default scope
 only elements that intersect the changed areas. Each finding lists selectors, the nearest token
-(when one is close) and whether base already used the value: new values are reported, existing
+(for colors only below a CIEDE2000 difference of 5; otherwise "no close token") and whether base already used the value: new values are reported, existing
 ones are collapsed. Categories without any tokens are skipped. Options: `properties`,
 `colorTolerance` (per channel, 2), `pxTolerance` (0.5), `remBase` (16), `allow`, `categories`, `ignoreSelectors`,
 `maxFindings`. Styles are recorded for at most `capture.styleMaxElements` (2500) visible elements per
