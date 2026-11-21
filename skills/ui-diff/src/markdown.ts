@@ -161,6 +161,15 @@ function distinct(values: string[]): string {
   return [...new Set(values)].join(' / ');
 }
 
+/** One user agent, or one per viewport when they differ (mobile viewports send a phone's). */
+function userAgents(pairs: Array<[string, string]>): string {
+  const byViewport = new Map<string, string>();
+  for (const [viewport, ua] of pairs) if (!byViewport.has(viewport)) byViewport.set(viewport, ua);
+  const unique = [...new Set(byViewport.values())];
+  if (unique.length === 1) return code(unique[0]);
+  return [...byViewport].map(([viewport, ua]) => `${viewport} ${code(ua)}`).join('; ');
+}
+
 /** One row value per side, summarizing that side's fingerprints across captures. */
 function settingsRows(report: Report, side: 'base' | 'head'): Array<[string, string]> | undefined {
   const captures = report.captures.filter((c) => c.fingerprint?.[side]);
@@ -192,7 +201,7 @@ function settingsRows(report: Report, side: 'base' | 'head'): Array<[string, str
     ['Frozen', frozen],
     ['Media', media],
     ['Test data', distinct(fps.map((f) => f.data))],
-    ['User agent', distinct(fps.map((f) => f.browser.userAgent))],
+    ['User agent', userAgents(captures.map((c) => [c.viewport, c.fingerprint![side]!.browser.userAgent]))],
   ];
 }
 
@@ -206,7 +215,7 @@ export function captureSettingsSection(report: Report): string[] {
     .filter(([label]) => label !== 'User agent')
     .map(([label, b, h]) => `| ${label} | ${cell(b)} | ${label !== 'Commit' && h === b ? 'same' : cell(h)} |`);
   const [, uaBase, uaHead] = rows.find(([label]) => label === 'User agent')!;
-  const ua = uaBase === uaHead ? `User agent: ${code(uaBase)}` : `User agent: base ${code(uaBase)}, head ${code(uaHead)}`;
+  const ua = uaBase === uaHead ? `User agent: ${uaBase}` : `User agent: base ${uaBase}; head ${uaHead}`;
   return ['<details><summary>Capture settings</summary>', '', '| | Base | Head |', '|---|---|---|', ...table, '', `<sub>${ua}</sub>`, '', '</details>', ''];
 }
 

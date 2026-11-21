@@ -39,6 +39,13 @@ describe('capture settings in the comment', () => {
     );
   });
 
+  it('lists the user agent per viewport when they differ', () => {
+    const r = withFingerprints();
+    const phone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148';
+    for (const side of ['base', 'head'] as const) r.captures[1].fingerprint![side]!.browser.userAgent = phone;
+    assert.match(captureSettingsSection(r).join('\n'), new RegExp(`<sub>User agent: desktop \`Mozilla/5\\.0 \\(X11; Linux x86_64\\) HeadlessChrome/159\\.0\\.8154\\.6\`; mobile \`${phone.replace(/[.()]/g, '\\$&')}\`</sub>`));
+  });
+
   it('sits right after the changes, with the commit pair still at the top', () => {
     const body = renderComment(withFingerprints(), { id: 'default', title: 'UI diff', link });
     const lines = body.split('\n');
