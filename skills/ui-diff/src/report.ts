@@ -43,6 +43,8 @@ export interface CaptureResult {
   truncated: boolean;
   /** What each side was rendered with; set when both sides were captured. */
   fingerprint?: CaptureFingerprint;
+  /** Size of each side's element map (styles/<side>/<id>.json); capped when capture.styleMaxElements cut it short. */
+  elementMap?: Partial<Record<'base' | 'head', { elements: number; capped?: boolean }>>;
 }
 
 /** What one side of a capture was rendered with, measured in the page. No paths, hosts, users or env values. */

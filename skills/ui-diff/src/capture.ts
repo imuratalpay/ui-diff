@@ -47,8 +47,10 @@ export interface CaptureRecord {
   /** The page clock was paused for the final screenshots because something kept moving. */
   frozeTimers?: boolean;
   stylesFile?: string;
-  /** The style snapshot hit capture.styleMaxElements. */
+  /** The style snapshot (element map) hit capture.styleMaxElements. */
   stylesCapped?: boolean;
+  /** Elements in the element map. */
+  stylesCount?: number;
   /** Time spent on the style snapshot and on axe plus focus order, within durationMs. */
   stylesMs?: number;
   a11yMs?: number;
@@ -384,7 +386,7 @@ export class CaptureSession {
     }
     const stable = streak >= wanted;
     const unsettled = changes >= 2 || !stable ? await describeRegions(page, moving, fullPage) : undefined;
-    if (frozeTimers) await page.context().clock.resume().catch(() => undefined);
+    // The caller resumes the clock once the element map describes this same frame.
     return { buffer: previous, stable, attempts, truncated, unsettled, frozeTimers };
   }
 
@@ -422,8 +424,10 @@ export class CaptureSession {
         writeFileSync(target.styles.file, JSON.stringify(snapshot));
         record.stylesFile = target.styles.file;
         if (capped) record.stylesCapped = true;
+        record.stylesCount = snapshot.elements.length;
         record.stylesMs = Math.round(performance.now() - stylesStart);
       }
+      if (shot.frozeTimers) await page.context().clock.resume().catch(() => undefined);
       const a11yStart = performance.now();
       if (target.a11y) record.axe = await runAxe(page, { tags: cfg.a11y.tags, rules: cfg.a11y.rules });
       if (target.focusOrder) record.focusOrder = await collectFocusOrder(page, cfg.a11y.maxTabStops);

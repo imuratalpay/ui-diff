@@ -321,6 +321,12 @@ export const ConfigSchema = z
       .prefault({}),
     capture: CaptureSchema.prefault({}),
     freeze: FreezeSchema.prefault({}).describe('Inputs frozen before every still capture, the same on both sides'),
+    styleDiff: z
+      .object({
+        enabled: z.boolean().default(true).describe('Record the element map of every capture and describe changes as measured style changes'),
+      })
+      .strict()
+      .prefault({}),
     fingerprint: z
       .object({
         dataLabel: z

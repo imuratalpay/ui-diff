@@ -102,8 +102,9 @@ describe('device scale comes from the page', { timeout: 300_000 }, () => {
     const snapshot = JSON.parse(readFileSync(path.join(outDir, 'styles', 'head', `${capture.id}.json`), 'utf8')) as { elements: unknown[] };
     assert.equal(snapshot.elements.length, 10);
     for (const side of ['base', 'head']) assert.ok(capture.warnings.some((w) => w.startsWith(`${side}: style snapshot stopped at 10 elements`)), JSON.stringify(capture.warnings));
-    const plain = await runPipeline({ cfg: loaded, outDir: path.join(dir, 'no-styles'), base: baseSha, head: headSha, allRoutes: true });
-    assert.equal(existsSync(path.join(dir, 'no-styles', 'styles')), false, 'off by default');
+    assert.deepEqual(capture.elementMap, { base: { elements: 10, capped: true }, head: { elements: 10, capped: true } }, 'the report says the map was cut short');
+    const plain = await runPipeline({ cfg: { ...loaded, styleDiff: { enabled: false } }, outDir: path.join(dir, 'no-styles'), base: baseSha, head: headSha, allRoutes: true });
+    assert.equal(existsSync(path.join(dir, 'no-styles', 'styles')), false, 'not recorded when neither the token audit nor the style diff needs it');
     assert.equal(plain.report.stats.errors, 0);
   });
 });

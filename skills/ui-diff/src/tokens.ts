@@ -32,10 +32,31 @@ export interface TokenSet {
 
 export interface StyledElement {
   selector: string;
+  /** Page coordinates in CSS px. */
   box: Box;
   text: boolean;
   /** Horizontal margins come from `margin: auto` centering, not from a spacing value. */
   autoMarginX?: boolean;
+  // Element map fields; absent in snapshots written before the map existed.
+  /** Stable identity: "testid:…", "id:…", "aria:<role>:<label>", else "path:<selector>". */
+  id?: string;
+  /** Readable name: "button 'Get started'", "heading 'Pricing'", "Card (div.card)", or the selector. */
+  name?: string;
+  /** React or Vue component whose outermost DOM node this is. */
+  component?: string;
+  tag?: string;
+  role?: string;
+  /** Accessible name, for links, buttons, form fields, headings, images and elements with a role. */
+  label?: string;
+  /** The element's own text (not its children's). */
+  ownText?: string;
+  /** Image or video source, without the origin. */
+  src?: string;
+  attrs?: { testid?: string; id?: string; ariaLabel?: string };
+  /** Index of the nearest recorded ancestor in `elements`. */
+  parent?: number | null;
+  /** `box` in device pixels (the screenshot's coordinates). */
+  deviceBox?: Box;
   styles: {
     color: string;
     backgroundColor: string;
@@ -50,6 +71,18 @@ export interface StyledElement {
     lineHeight: string;
     /** Absent in snapshots written before it was recorded. */
     letterSpacing?: string;
+    // Recorded for the style diff; absent in older snapshots.
+    opacity?: string;
+    boxShadow?: string;
+    borderWidth?: string[];
+    /** Top, right, bottom, left, whether or not that side has a border. */
+    borderColors?: string[];
+    backgroundImage?: string;
+    display?: string;
+    flexDirection?: string;
+    gridAutoFlow?: string;
+    justifyContent?: string;
+    alignItems?: string;
   };
 }
 

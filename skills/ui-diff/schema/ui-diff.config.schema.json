@@ -907,6 +907,18 @@
       },
       "additionalProperties": false
     },
+    "styleDiff": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Record the element map of every capture and describe changes as measured style changes",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
     "fingerprint": {
       "default": {},
       "type": "object",

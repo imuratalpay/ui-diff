@@ -391,7 +391,7 @@ async function prepareStage(opts: RunOptions, detected: Detected, runStart: Date
   const previewUrls = [detected.baseUrl, detected.headUrl].filter((u): u is string => Boolean(u));
   const auth = previewUrls.length || cfg.auth?.origins?.length ? resolveAuth(cfg.auth, previewUrls) : undefined;
   if (cfg.auth && !auth && previewUrls.length === 0) log.debug('auth configured but both sides run locally; credentials not used');
-  return { routes, viewports, themes, plans: planCaptures(cfg, routes, viewports, themes, a11yOn), reportBase, motionOn, a11yOn, tokens, stylesOn: Boolean(tokens) || Boolean(opts.collectStyles), auth, detection };
+  return { routes, viewports, themes, plans: planCaptures(cfg, routes, viewports, themes, a11yOn), reportBase, motionOn, a11yOn, tokens, stylesOn: Boolean(tokens) || Boolean(opts.collectStyles) || cfg.styleDiff.enabled, auth, detection };
 }
 
 async function loadTokens(opts: RunOptions): Promise<{ set: TokenSet; files: string[] }> {
@@ -505,6 +505,10 @@ function diffStage(plans: Plan[], records: Map<string, CaptureRecord>, ctx: { ba
     for (const [label, r] of [['base', b], ['head', h]] as const) {
       for (const action of r?.skippedActions ?? []) c.warnings.push(skippedActionWarning(label, action));
       if (r?.stylesCapped) c.warnings.push(styleCapWarning(label, cfg.capture.styleMaxElements));
+      if (r?.stylesCount !== undefined) {
+        c.elementMap ??= {};
+        c.elementMap[label] = { elements: r.stylesCount, ...(r.stylesCapped ? { capped: true } : {}) };
+      }
       if (r?.pageErrors.length) c.warnings.push(`${label}: uncaught page error: ${r.pageErrors[0]}`);
       if (r && r.ok && (!r.stable || r.unsettled)) c.warnings.push(unsettledWarning(label, r));
     }
