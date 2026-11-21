@@ -51,6 +51,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         if: steps.pm.outputs.name == 'bun'
 
+      # The only dependency install of the run for each lockfile. ui-diff's base and head worktrees
+      # reuse it when their lockfile matches this checkout: symlinked node_modules, or for Next.js
+      # (Turbopack refuses symlinks out of the project) a copy made of hard links. Head is this
+      # checkout, so only a PR that changes the lockfile makes base install once more; that
+      # install reads the package manager's cache (~/.npm, the pnpm store, the yarn cache) filled
+      # by this step.
       - name: Install app dependencies
         run: ${{ steps.pm.outputs.install }}
 

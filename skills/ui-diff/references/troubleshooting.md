@@ -19,8 +19,10 @@ Symptoms seen when running ui-diff on real apps, and what to do. Logs are in `.u
 - Use `"baseUrl": "http://localhost:{port}"`. Next.js blocks its dev resources for `127.0.0.1`
   (`Blocked cross-origin request … from "127.0.0.1"` in the server log), so pages never hydrate:
   client components stay empty and `actions` / motion clicks do nothing.
-- Turbopack does not accept symlinked `node_modules`, so each worktree needs a real install; keep
-  the npm/pnpm cache warm in CI.
+- Turbopack does not accept symlinked `node_modules`, so worktrees get hard-linked copies of an
+  existing install instead: install your checkout's dependencies first (CI does) and a worktree
+  whose lockfile matches needs no install of its own. Hard links need the worktrees (system temp
+  directory) on the same file system as the checkout; otherwise the files are copied.
 
 ## "No UI changes" or files listed as `unmatched`
 

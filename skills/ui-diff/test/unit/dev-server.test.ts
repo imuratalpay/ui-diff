@@ -144,7 +144,7 @@ describe('dependency plan', () => {
         assert.equal(plan.kind, kind, JSON.stringify(plan));
         if (kind === 'command') {
           assert.match(plan.reason, /Next\.js/);
-          assert.equal(plan.lockKey, undefined, 'Next.js must never share (link) another side\'s install');
+          assert.equal(plan.share, 'copy', 'Next.js may share another side\'s install only as a copy, never through symlinks');
         }
       }
     } finally {

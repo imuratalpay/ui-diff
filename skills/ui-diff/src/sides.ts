@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { assertSafePreviewUrl, sanitizeUrl } from './auth.js';
@@ -89,13 +89,49 @@ export function linkNodeModules(fromDir: string, toDir: string): boolean {
   return true;
 }
 
+function cloneTree(from: string, to: string, top: boolean): void {
+  mkdirSync(to, { recursive: true });
+  for (const entry of readdirSync(from, { withFileTypes: true })) {
+    if (top && UNSHARED_ENTRIES.has(entry.name)) continue;
+    const src = path.join(from, entry.name);
+    const dst = path.join(to, entry.name);
+    if (entry.isSymbolicLink()) symlinkSync(readlinkSync(src), dst);
+    else if (entry.isDirectory()) cloneTree(src, dst, false);
+    else if (entry.isFile()) {
+      try {
+        linkSync(src, dst);
+      } catch {
+        // another file system (or no hard links): a real copy
+        copyFileSync(src, dst);
+      }
+    }
+  }
+}
+
+/**
+ * Gives a worktree its own node_modules for tools that refuse symlinks out of the project
+ * (Next.js / Turbopack): real directories with hard-linked files, so it costs no download and
+ * almost no disk. Symlinks are recreated as they are, so relative ones (.bin, workspace
+ * packages) resolve inside the worktree. Caches such as .cache and .next are not shared.
+ */
+export function copyNodeModules(fromDir: string, toDir: string): boolean {
+  const source = path.join(fromDir, 'node_modules');
+  const target = path.join(toDir, 'node_modules');
+  if (!existsSync(source) || existsSync(target)) return false;
+  cloneTree(source, target, true);
+  return true;
+}
+
 export interface InstallPlan {
-  kind: 'none' | 'link' | 'command';
+  /** link: symlink your installed packages; copy: hard-linked copy of them; command: install. */
+  kind: 'none' | 'link' | 'copy' | 'command';
   command?: string;
   dir?: string;
   reason: string;
   /** Lockfile identity (path + content hash): sides with the same key can share one install. */
   lockKey?: string;
+  /** How the other side reuses that shared install (default: link). */
+  share?: 'link' | 'copy';
 }
 
 export function planInstall(cfg: ResolvedConfig, worktreeRoot: string): InstallPlan {
@@ -109,14 +145,16 @@ export function planInstall(cfg: ResolvedConfig, worktreeRoot: string): InstallP
   const lock = LOCKFILES.find((l) => existsSync(path.join(lockDir, l.file)))!;
   const rel = path.relative(worktreeRoot, lockDir);
   const mainLockDir = path.join(cfg.repoRoot, rel);
-  if (usesNext(pkgDir)) {
-    return { kind: 'command', command: lock.command, dir: lockDir, reason: 'Next.js (Turbopack) does not follow node_modules symlinks that point outside the project' };
-  }
   const hash = lockfileHash(path.join(lockDir, lock.file));
-  if (hash && hash === lockfileHash(path.join(mainLockDir, lock.file)) && existsSync(path.join(mainLockDir, 'node_modules'))) {
-    return { kind: 'link', dir: lockDir, reason: `${lock.file} matches your checkout` };
+  const matches = Boolean(hash) && hash === lockfileHash(path.join(mainLockDir, lock.file)) && existsSync(path.join(mainLockDir, 'node_modules'));
+  const lockKey = hash ? `${rel}|${lock.file}|${hash}` : undefined;
+  if (usesNext(pkgDir)) {
+    const why = 'Next.js (Turbopack) does not follow node_modules symlinks that point outside the project';
+    if (matches) return { kind: 'copy', dir: lockDir, reason: `${lock.file} matches your checkout; ${why}, so the worktree gets a hard-linked copy` };
+    return { kind: 'command', command: lock.command, dir: lockDir, reason: `${lock.file} differs from your checkout (${why})`, lockKey, share: 'copy' };
   }
-  return { kind: 'command', command: lock.command, dir: lockDir, reason: `${lock.file} differs from your checkout`, lockKey: hash ? `${rel}|${lock.file}|${hash}` : undefined };
+  if (matches) return { kind: 'link', dir: lockDir, reason: `${lock.file} matches your checkout` };
+  return { kind: 'command', command: lock.command, dir: lockDir, reason: `${lock.file} differs from your checkout`, lockKey };
 }
 
 /**
@@ -159,6 +197,13 @@ function linkAll(cfg: ResolvedConfig, worktreeRoot: string, lockDir: string, fro
   linkNodeModules(path.join(fromRoot, rel), lockDir);
   const appDir = path.join(worktreeRoot, cfg.dirRel, cfg.cwd);
   if (appDir !== lockDir) linkNodeModules(path.join(fromRoot, cfg.dirRel, cfg.cwd), appDir);
+}
+
+function copyAll(cfg: ResolvedConfig, worktreeRoot: string, lockDir: string, fromRoot = cfg.repoRoot): void {
+  const rel = path.relative(worktreeRoot, lockDir);
+  copyNodeModules(path.join(fromRoot, rel), lockDir);
+  const appDir = path.join(worktreeRoot, cfg.dirRel, cfg.cwd);
+  if (appDir !== lockDir) copyNodeModules(path.join(fromRoot, cfg.dirRel, cfg.cwd), appDir);
 }
 
 function unlinkAll(worktreeRoot: string, cfg: ResolvedConfig, lockDir: string): void {
@@ -250,10 +295,13 @@ export class SideManager {
       });
     }
     const plan = planInstall(cfg, dir);
-    let linked = plan.kind === 'link';
+    let linked = plan.kind === 'link' || plan.kind === 'copy';
     if (plan.kind === 'link') {
       log.step(`${request.name}: reusing installed dependencies (${plan.reason})`);
       linkAll(cfg, dir, plan.dir!);
+    } else if (plan.kind === 'copy') {
+      log.step(`${request.name}: reusing installed dependencies (${plan.reason})`);
+      copyAll(cfg, dir, plan.dir!);
     } else if (plan.kind === 'command') {
       const install = async () => {
         log.step(`${request.name}: installing dependencies (${plan.reason}): ${plan.command}`);
@@ -262,7 +310,7 @@ export class SideManager {
       const from = plan.lockKey ? await this.installs.run(plan.lockKey, dir, install) : (await install(), undefined);
       if (from) {
         log.step(`${request.name}: reusing dependencies installed for the other side (same lockfile)`);
-        linkAll(cfg, dir, plan.dir!, from);
+        (plan.share === 'copy' ? copyAll : linkAll)(cfg, dir, plan.dir!, from);
         linked = true;
       }
     }
