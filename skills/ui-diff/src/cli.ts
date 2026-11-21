@@ -49,7 +49,7 @@ detect / run
   --viewports <list>     e.g. desktop,mobile or tablet:820x1180@2
   --themes <list>        e.g. light,dark
   --variants <spec>      Variant compare, e.g. hero=1..4 or /pricing:plan=a,b (repeatable)
-  --motion               Record before/after motion clips (routes with visual changes only)
+  --motion               Record before/after motion clips (routes whose changed files touch motion)
   --motion-all           Record motion clips for every route, changed or not
   --tokens <files>       Design-token audit against JSON, CSS or StyleX (*.stylex.ts) token files
                          (comma-separated; "auto" finds them)
@@ -203,6 +203,7 @@ async function cmdRun(values: Values): Promise<void> {
     variants: r.variants.map((v) => ({ id: v.id, images: v.items.map((i) => i.image ?? i.error) })),
     motion: r.motion.map((m) => ({ id: m.id, gif: m.gif, webm: m.webm, frames: m.frames, warnings: m.warnings, error: m.error })),
     motionSkipped: r.motionSkipped,
+    motionNoAnimation: r.motionNoAnimation,
     a11y: r.a11y ? { new: r.a11y.added.length, fixed: r.a11y.fixed.length, focusChanges: r.a11y.focus.filter((f) => f.delta.changed).length } : undefined,
     tokens: r.tokens ? { new: r.tokens.findings.filter((f) => f.isNew).length, existing: r.tokens.findings.filter((f) => !f.isNew).length, notAudited: r.tokens.skipped } : undefined,
     timing: r.timings ? timingLine(r.timings) : undefined,

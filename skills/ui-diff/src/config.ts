@@ -176,6 +176,7 @@ const MotionSchema = z
     theme: z.string().optional(),
     scale: z.number().min(0.2).max(1).default(0.6),
     steps: z.array(StepSchema).default([]),
+    parallel: z.boolean().default(true).describe('Record base and head at the same time (each in its own page); false records them one after the other'),
   })
   .strict();
 

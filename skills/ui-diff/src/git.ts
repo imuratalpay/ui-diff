@@ -1,4 +1,7 @@
 import { spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { exec, type ExecOptions } from './exec.js';
 import { UiDiffError } from './log.js';
 
@@ -177,4 +180,57 @@ export async function remoteUrl(remote: string, cwd: string): Promise<string | u
 export async function shortSha(sha: string, cwd: string): Promise<string> {
   const result = await exec('git', ['rev-parse', '--short=7', sha], { cwd, allowFailure: true });
   return result.code === 0 ? result.stdout.trim() : sha.slice(0, 7);
+}
+
+let styleAttributes: string | undefined;
+
+/** A gitattributes file that turns on git's built-in css diff driver, whose hunk headers name the enclosing rule. */
+function styleAttributesFile(): string {
+  if (!styleAttributes || !existsSync(styleAttributes)) {
+    styleAttributes = path.join(mkdtempSync(path.join(os.tmpdir(), 'ui-diff-attrs-')), 'attributes');
+    writeFileSync(styleAttributes, ['css', 'scss', 'sass', 'less', 'styl', 'pcss'].map((ext) => `*.${ext} diff=css`).join('\n') + '\n');
+  }
+  return styleAttributes;
+}
+
+/**
+ * Added and removed lines per file between the merge base and `head` (or the working tree,
+ * including untracked files, when head is undefined), plus, for stylesheets, the selector of the
+ * rule each change sits in (a changed `padding` inside `.cta { }` belongs to `.cta`). Files git
+ * shows no text diff for are absent.
+ */
+export async function changedLines(base: string, head: string | undefined, files: string[], cwd: string): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (files.length === 0) return out;
+  const text = await git(
+    ['-c', 'core.quotePath=false', '-c', `core.attributesFile=${styleAttributesFile()}`, 'diff', '-U0', '--no-color', '--no-ext-diff', head ? `${base}...${head}` : base, '--', ...files],
+    { cwd },
+  );
+  let current: string[] | undefined;
+  for (const line of text.split('\n')) {
+    const header = /^diff --git a\/.* b\/(.*)$/.exec(line);
+    if (header) {
+      out.set(header[1], (current = []));
+      continue;
+    }
+    if (!current || line.startsWith('+++ ') || line.startsWith('--- ')) continue;
+    const hunk = /^@@ [^@]* @@ ?(.*)$/.exec(line);
+    if (hunk) {
+      if (hunk[1].trim()) current.push(hunk[1]);
+      continue;
+    }
+    if (line.startsWith('+') || line.startsWith('-')) current.push(line.slice(1));
+  }
+  if (!head) {
+    const wanted = new Set(files);
+    for (const file of await untrackedFiles(cwd)) {
+      if (!wanted.has(file)) continue;
+      try {
+        out.set(file, readFileSync(path.join(cwd, file), 'utf8').split('\n'));
+      } catch {
+        // vanished
+      }
+    }
+  }
+  return out;
 }

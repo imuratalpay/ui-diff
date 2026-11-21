@@ -14,6 +14,8 @@ export interface RouteHit {
   route: ResolvedRoute;
   confidence: Confidence;
   reasons: string[];
+  /** Changed files that affect this route (empty when only a dependency change does). */
+  files: string[];
 }
 
 export interface MappingResult {
@@ -75,8 +77,9 @@ export async function mapChangesToRoutes(input: MappingInput): Promise<MappingRe
     if (existing) {
       if (!existing.reasons.includes(reason)) existing.reasons.push(reason);
       if (RANK[confidence] < RANK[existing.confidence]) existing.confidence = confidence;
+      if (file && !existing.files.includes(file)) existing.files.push(file);
     } else {
-      hits.set(route.path, { route, confidence, reasons: [reason] });
+      hits.set(route.path, { route, confidence, reasons: [reason], files: file ? [file] : [] });
     }
   };
 
@@ -225,11 +228,11 @@ export async function mapChangesToRoutes(input: MappingInput): Promise<MappingRe
 
   for (const { file, scope } of layoutChanged) {
     for (const route of knownRoutes().filter((r) => routeUnder(r.path, scope))) {
-      addHit(route, `layout ${file} wraps ${scope === '/' ? 'every route' : `${scope}/*`}`, 'medium');
+      addHit(route, `layout ${file} wraps ${scope === '/' ? 'every route' : `${scope}/*`}`, 'medium', file);
     }
   }
   for (const file of globalChanged) {
-    for (const route of knownRoutes()) addHit(route, `app-wide file ${file} changed`, 'medium');
+    for (const route of knownRoutes()) addHit(route, `app-wide file ${file} changed`, 'medium', file);
   }
   const uiDeps = (input.dependencies?.changes ?? []).filter((d) => d.ui);
   if (uiDeps.length) {

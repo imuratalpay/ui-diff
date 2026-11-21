@@ -180,6 +180,8 @@ export interface Report {
   motion: MotionResult[];
   /** Routes whose motion clip was skipped because no capture of them changed (use --motion-all to record anyway). */
   motionSkipped?: string[];
+  /** Changed routes whose changed files touch no animation (transitions, keyframes, :hover...), so no clip was recorded. */
+  motionNoAnimation?: string[];
   tokens?: TokenReport;
   a11y?: A11yReport;
   /** Set when nothing was captured: why (see `notCheckedReason`). */
@@ -385,6 +387,7 @@ export function autoSummary(report: Report): string {
   if (report.motion.length) lines.push(`- ${report.motion.length} motion clip${report.motion.length === 1 ? '' : 's'} recorded for interactions static screenshots miss.`);
   const still = report.motion.filter((m) => m.warnings?.some((w) => w.startsWith('no motion detected')));
   if (still.length) lines.push(`- No motion detected in ${still.map((m) => `\`${m.route.path}\``).join(', ')} (single-frame clip).`);
+  if (report.motionNoAnimation?.length) lines.push(`- Motion not recorded for ${report.motionNoAnimation.map((r) => `\`${r}\``).join(', ')}: their changed files touch no transition, animation or interaction state.`);
   if (report.motionSkipped?.length) lines.push(`- Motion not recorded for unchanged routes: ${report.motionSkipped.map((r) => `\`${r}\``).join(', ')}.`);
   const deps = report.detect?.dependencies ?? [];
   const uiDeps = deps.filter((d) => d.ui);

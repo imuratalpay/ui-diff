@@ -1246,6 +1246,11 @@
               }
             ]
           }
+        },
+        "parallel": {
+          "default": true,
+          "description": "Record base and head at the same time (each in its own page); false records them one after the other",
+          "type": "boolean"
         }
       },
       "additionalProperties": false

@@ -179,7 +179,7 @@ After a PR closes, `node "$SKILL/bin/ui-diff.mjs" prune --closed` removes its im
 | Feature | Enable | What you get |
 |---|---|---|
 | Variant compare | `--variants hero=1..4` or `routes[].variants` | Head captured once per `?hero=` value, shown side by side in one table with tick boxes reviewers use to pick. |
-| Motion clips | `--motion` or `motion.enabled` + `routes[].motion.steps` | Short before/after GIF (and optional WebM) of a scripted hover/click/scroll, for transitions screenshots miss. Only routes with a visual change unless `--motion-all`; a single-frame clip is flagged "no motion detected". |
+| Motion clips | `--motion` or `motion.enabled` + `routes[].motion.steps` | Short before/after GIF (and optional WebM) of a scripted hover/click/scroll, for transitions screenshots miss. Only routes whose changed files touch motion (transitions, keyframes, `:hover`, the elements the steps target; transition-only changes included) unless `--motion-all`; a single-frame clip is flagged "no motion detected". |
 | Token audit | `--tokens tokens.json` or `tokens.enabled` | Computed colors, spacing, radii and type in changed areas that match no token (JSON, CSS variables or StyleX `*.stylex.ts`; `--tokens auto` finds them), with selectors and the nearest token. |
 | Protected previews | `--base-url/--head-url` + `auth` | Captures behind Vercel Authentication and similar, with credentials from env vars sent only to the preview origin. |
 | Accessibility delta | `--a11y` or `a11y.enabled` | axe-core on both sides; only new and fixed issues (contrast, labels, focus), plus tab-order changes. |

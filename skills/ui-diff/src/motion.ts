@@ -163,3 +163,44 @@ export function moveFile(from: string, to: string): void {
   mkdirSync(path.dirname(to), { recursive: true });
   renameSync(from, to);
 }
+
+/**
+ * Changed lines that can change how something moves: CSS transitions, animations and keyframes,
+ * transforms, interaction states, motion libraries and animation timing. Deliberately broad: a
+ * false positive only records a clip that was not needed.
+ */
+const ANIMATION_LINE =
+  /\b(?:transition|animation|animate|keyframes|transform|translate[XYZ3d]*|rotate|scale[XYZ3d]*|will-change|opacity|cubic-bezier|ease(?:-in|-out|-in-out)?|steps\(|requestAnimationFrame|motion|framer-motion|gsap|lottie|spring|duration|delay)\b|@keyframes|:hover|:focus|:active|:focus-visible|:focus-within|\[open\]|data-state/i;
+
+/** Packages whose change can change motion everywhere. */
+const ANIMATION_PACKAGES = /^(?:framer-motion|motion|gsap|@react-spring\/.*|react-spring|lottie-.*|@lottiefiles\/.*|animejs|@formkit\/auto-animate|tailwindcss-animate|tw-animate-css)$/;
+
+export function isAnimationPackage(name: string): boolean {
+  return ANIMATION_PACKAGES.test(name);
+}
+
+/** Class, id and attribute names and values in the selectors a motion script hovers, clicks or waits for. */
+export function stepTokens(steps: Step[]): string[] {
+  const tokens = new Set<string>();
+  for (const step of steps) {
+    for (const selector of Object.values(step).filter((v): v is string => typeof v === 'string')) {
+      for (const m of selector.matchAll(/[.#]([\w-]+)/g)) tokens.add(m[1]);
+      for (const m of selector.matchAll(/\[([\w-]+)(?:[~|^$*]?=\s*["']?([^"'\]]+)["']?)?\]/g)) {
+        tokens.add(m[1]);
+        if (m[2]) tokens.add(m[2].trim());
+      }
+    }
+  }
+  return [...tokens];
+}
+
+/**
+ * Whether any changed line of a file can change the clip: it touches motion, or names an element
+ * the motion script interacts with (a resized button changes its hover animation). Binary assets
+ * (images, fonts) never do.
+ */
+export function touchesAnimation(file: string, lines: string[], tokens: string[] = []): boolean {
+  if (/\.(?:svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf)$/i.test(file)) return false;
+  const named = tokens.map((t) => new RegExp(`(?:^|[^\\w-])${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[^\\w-]|$)`));
+  return lines.some((line) => ANIMATION_LINE.test(line) || named.some((re) => re.test(line)));
+}

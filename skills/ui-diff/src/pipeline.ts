@@ -7,17 +7,17 @@ import { CaptureSession, ensureBrowser, launchBrowser, resolveBrowser, routeUrl,
 import { parseVariantFlag, pickThemes, pickViewports, resolveRoute, type ResolvedConfig, type ResolvedRoute, type Step, type ThemeConfig, type VariantSpec, type ViewportConfig } from './config.js';
 import { detectChanges, resolveBaseRef, type DetectResult } from './detect.js';
 import { composeCompare, diffPngs, focusBoxes } from './diff.js';
-import { git, gitCommonDir, mergeBase, revParse, shortSha } from './git.js';
+import { changedLines, git, gitCommonDir, mergeBase, revParse, shortSha } from './git.js';
 import { COLORS, composeRow, readPng, resizeToWidth, writePng } from './image.js';
 import { captureKey, keyId, type CaptureKey } from './key.js';
 import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
-import { distinctFrames, encodeSideBySideGif, motionWarning, moveFile, recordFrames, writeFile, type RawFrame } from './motion.js';
+import { distinctFrames, encodeSideBySideGif, isAnimationPackage, motionWarning, recordFrames, stepTokens, touchesAnimation, writeFile, type RawFrame } from './motion.js';
 import { realpathIfExists } from './paths.js';
 import { autoSummary, computeStats, fingerprintDifferences, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureFingerprint, type CaptureResult, type MotionResult, type Report, type SideFingerprint, type SideSummary, type Timings, type VariantGroup } from './report.js';
 import { killAllServers, serverLogWarnings } from './server.js';
 import { SideManager, type Side, type SideRequest } from './sides.js';
-import { describeStep, runSteps } from './steps.js';
+import { describeStep } from './steps.js';
 import { styleCapWarning } from './styles.js';
 import { aggregateFindings, auditSnapshot, buildTokenSet, detectTokenFiles, findingKeys, hasCategory, loadTokenFiles, tokenColorStrings, type StyleSnapshot, type TokenSet } from './tokens.js';
 import { onlyInUnsettled, unsettledWarning } from './unsettled.js';
@@ -194,6 +194,7 @@ interface Prepared {
   tokens?: { set: TokenSet; files: string[] };
   stylesOn: boolean;
   auth?: ResolvedAuth;
+  detection?: DetectResult;
 }
 
 interface Booted {
@@ -390,7 +391,7 @@ async function prepareStage(opts: RunOptions, detected: Detected, runStart: Date
   const previewUrls = [detected.baseUrl, detected.headUrl].filter((u): u is string => Boolean(u));
   const auth = previewUrls.length || cfg.auth?.origins?.length ? resolveAuth(cfg.auth, previewUrls) : undefined;
   if (cfg.auth && !auth && previewUrls.length === 0) log.debug('auth configured but both sides run locally; credentials not used');
-  return { routes, viewports, themes, plans: planCaptures(cfg, routes, viewports, themes, a11yOn), reportBase, motionOn, a11yOn, tokens, stylesOn: Boolean(tokens) || Boolean(opts.collectStyles), auth };
+  return { routes, viewports, themes, plans: planCaptures(cfg, routes, viewports, themes, a11yOn), reportBase, motionOn, a11yOn, tokens, stylesOn: Boolean(tokens) || Boolean(opts.collectStyles), auth, detection };
 }
 
 async function loadTokens(opts: RunOptions): Promise<{ set: TokenSet; files: string[] }> {
@@ -522,7 +523,7 @@ async function extrasStage(
   prepared: Prepared,
   captures: CaptureResult[],
   records: Map<string, CaptureRecord>,
-): Promise<{ extras: Pick<Report, 'variants' | 'motion' | 'motionSkipped' | 'tokens' | 'a11y'>; timings: NonNullable<Timings['extras']> }> {
+): Promise<{ extras: Pick<Report, 'variants' | 'motion' | 'motionSkipped' | 'motionNoAnimation' | 'tokens' | 'a11y'>; timings: NonNullable<Timings['extras']> }> {
   const { cfg, outDir } = opts;
   const { routes, viewports, themes } = prepared;
   const { session, base, head } = booted;
@@ -535,10 +536,26 @@ async function extrasStage(
   if (specs.size) timings.variantsMs = since(start);
   const changedRoutes = new Set(captures.filter((c) => c.status === 'changed' || c.status === 'added' || c.status === 'removed').map((c) => c.route.path));
   const motionSkipped: string[] = [];
+  const motionNoAnimation: string[] = [];
   let motion: MotionResult[] = [];
   if (prepared.motionOn) {
     start = performance.now();
-    motion = await captureMotion(session, { routes, viewports, themes, base, head, outDir, cfg, explicit: Boolean(opts.motion), all: cfg.motion.all || Boolean(opts.motionAll), changedRoutes, skipped: motionSkipped });
+    const animated = prepared.detection ? await animatedRoutes(prepared.detection, cfg) : undefined;
+    motion = await captureMotion(session, {
+      routes,
+      viewports,
+      themes,
+      base,
+      head,
+      outDir,
+      cfg,
+      explicit: Boolean(opts.motion),
+      all: cfg.motion.all || Boolean(opts.motionAll),
+      changedRoutes,
+      animated,
+      skipped: motionSkipped,
+      noAnimation: motionNoAnimation,
+    });
     timings.motionMs = since(start);
   }
   let tokens: Report['tokens'];
@@ -553,7 +570,10 @@ async function extrasStage(
     a11y = a11yDelta(captures, prepared.plans, records, cfg);
     timings.a11yMs = since(start) + sum((r) => r.a11yMs);
   }
-  return { extras: { variants, motion, motionSkipped: motionSkipped.length ? motionSkipped : undefined, tokens, a11y }, timings };
+  return {
+    extras: { variants, motion, motionSkipped: motionSkipped.length ? motionSkipped : undefined, motionNoAnimation: motionNoAnimation.length ? motionNoAnimation : undefined, tokens, a11y },
+    timings,
+  };
 }
 
 function captureFingerprint(baseRec: CaptureRecord, headRec: CaptureRecord, ctx: { base: Side; head: Side; cfg: ResolvedConfig }): CaptureFingerprint | undefined {
@@ -724,15 +744,28 @@ async function captureMotion(
     explicit: boolean;
     all: boolean;
     changedRoutes: Set<string>;
+    /** Routes whose changed files touch motion; undefined when that is unknown (no detection). */
+    animated?: Set<string>;
     skipped: string[];
+    noAnimation: string[];
   },
 ): Promise<MotionResult[]> {
   const { cfg } = ctx;
   const declared = ctx.routes.filter((r) => r.motion);
   const candidates = declared.length ? declared : ctx.explicit ? ctx.routes : [];
-  const targets = motionTargets(candidates, ctx.changedRoutes, ctx.all);
-  for (const route of candidates) if (!targets.includes(route)) ctx.skipped.push(route.path);
-  if (ctx.skipped.length) log.info(`motion: skipping unchanged route(s) ${ctx.skipped.join(', ')} (use --motion-all to record them)`);
+  // With detection, the changed files decide: a transition-only change leaves the still capture
+  // unchanged but needs a clip, and a text change needs none. Without it, routes with a visual change get one.
+  let targets: ResolvedRoute[];
+  if (ctx.all) targets = candidates;
+  else if (ctx.animated) {
+    targets = candidates.filter((r) => ctx.animated!.has(r.path));
+    for (const route of candidates) if (!targets.includes(route)) ctx.noAnimation.push(route.path);
+    if (ctx.noAnimation.length) log.info(`motion: skipping ${ctx.noAnimation.join(', ')}: no animation-related change in their files (use --motion-all to record them)`);
+  } else {
+    targets = motionTargets(candidates, ctx.changedRoutes, false);
+    for (const route of candidates) if (!targets.includes(route)) ctx.skipped.push(route.path);
+    if (ctx.skipped.length) log.info(`motion: skipping unchanged route(s) ${ctx.skipped.join(', ')} (use --motion-all to record them)`);
+  }
   const results: MotionResult[] = [];
   for (const route of targets) {
     const m = route.motion ?? {};
@@ -744,38 +777,21 @@ async function captureMotion(
     const result: MotionResult = { id, route: { path: route.path, name: route.name, slug: route.slug }, viewport: viewport.name, theme: theme.name, steps: steps.map(describeStep) };
     log.step(`motion ${route.path} (${viewport.name}): ${result.steps.join(', ') || 'page load'}`);
     try {
-      const frames: Record<'base' | 'head', RawFrame[]> = { base: [], head: [] };
-      for (const side of [ctx.base, ctx.head]) {
-        const context = await session.newContext(viewport, theme, { deviceScaleFactor: 1 }, true);
-        try {
-          const page = await context.newPage();
-          const url = routeUrl(side.url, route.path, theme.query);
-          const size = page.viewportSize() ?? { width: 1280, height: 800 };
-          const recordOpts = { durationMs, width: size.width, height: size.height, timeoutMs: cfg.capture.timeoutMs };
-          let recorded: Awaited<ReturnType<typeof recordFrames>>;
-          if (m.fromNavigation) {
-            await page.goto('about:blank');
-            recorded = await recordFrames(page, steps, { ...recordOpts, beforeSteps: async () => void (await page.goto(url, { waitUntil: 'load' })) });
-          } else {
-            await session.openAndSettle(page, url, { ...route, actions: [] }, { freeze: false, fullPage: false });
-            recorded = await recordFrames(page, steps, recordOpts);
-          }
-          frames[side.name] = recorded.frames;
-          const reduced = await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches).catch(() => false);
-          if (reduced) (result.warnings ??= []).push(`${side.name}: the page saw prefers-reduced-motion: reduce while recording`);
-          for (const s of recorded.skipped) result.steps = result.steps.map((d) => (d === s ? `${d} (not on ${side.name})` : d));
-        } finally {
-          await context.close().catch(() => undefined);
-        }
+      const video = (side: Side) => (cfg.motion.format === 'gif' ? undefined : path.join(ctx.outDir, 'motion', `${id}__${side.name === 'base' ? 'before' : 'after'}.webm`));
+      const record = (side: Side) => recordMotionSide(session, side, { route, viewport, theme, steps, durationMs, fromNavigation: Boolean(m.fromNavigation), cfg, video: video(side) });
+      const [base, head] = cfg.motion.parallel ? await Promise.all([record(ctx.base), record(ctx.head)]) : [await record(ctx.base), await record(ctx.head)];
+      for (const [side, rec] of [['base', base], ['head', head]] as const) {
+        if (rec.reduced) (result.warnings ??= []).push(`${side}: the page saw prefers-reduced-motion: reduce while recording`);
+        for (const s of rec.skipped) result.steps = result.steps.map((d) => (d === s ? `${d} (not on ${side})` : d));
       }
-      result.frames = { base: distinctFrames(frames.base), head: distinctFrames(frames.head) };
+      result.frames = { base: distinctFrames(base.frames), head: distinctFrames(head.frames) };
       const still = motionWarning(result.frames);
       if (still) {
         (result.warnings ??= []).push(still);
         log.warn(`motion ${route.path}: ${still}`);
       }
       if (cfg.motion.format !== 'webm') {
-        const gif = encodeSideBySideGif(frames.base, frames.head, {
+        const gif = encodeSideBySideGif(base.frames, head.frames, {
           fps: cfg.motion.fps,
           durationMs,
           scale: cfg.motion.scale,
@@ -785,7 +801,7 @@ async function captureMotion(
         writeFile(file, gif);
         result.gif = rel(ctx.outDir, file);
       }
-      if (cfg.motion.format !== 'gif') result.webm = await recordWebm(session, route, viewport, theme, steps, durationMs, ctx);
+      if (cfg.motion.format !== 'gif') result.webm = { base: base.video && rel(ctx.outDir, base.video), head: head.video && rel(ctx.outDir, head.video) };
     } catch (error) {
       result.error = (error as Error).message.split('\n')[0];
       log.warn(`motion ${route.path}: ${result.error}`);
@@ -795,45 +811,63 @@ async function captureMotion(
   return results;
 }
 
+/**
+ * One side of a motion clip from a single page load: PNG frames of the steps for the GIF (CDP
+ * screencast) and, at the same time, the WebM (Playwright's screencast, from before navigation
+ * so it shows the load like a recorded context did).
+ */
+async function recordMotionSide(
+  session: CaptureSession,
+  side: Side,
+  ctx: { route: ResolvedRoute; viewport: ViewportConfig; theme: ThemeConfig; steps: Step[]; durationMs: number; fromNavigation: boolean; cfg: ResolvedConfig; video?: string },
+): Promise<{ frames: RawFrame[]; skipped: string[]; reduced: boolean; video?: string }> {
+  const { cfg } = ctx;
+  const context = await session.newContext(ctx.viewport, ctx.theme, { deviceScaleFactor: 1 }, true);
+  try {
+    const page = await context.newPage();
+    const url = routeUrl(side.url, ctx.route.path, ctx.theme.query);
+    const size = page.viewportSize() ?? { width: 1280, height: 800 };
+    if (ctx.video) {
+      mkdirSync(path.dirname(ctx.video), { recursive: true });
+      await page.screencast.start({ path: ctx.video, size });
+    }
+    const recordOpts = { durationMs: ctx.durationMs, width: size.width, height: size.height, timeoutMs: cfg.capture.timeoutMs };
+    let recorded: Awaited<ReturnType<typeof recordFrames>>;
+    if (ctx.fromNavigation) {
+      await page.goto('about:blank');
+      recorded = await recordFrames(page, ctx.steps, { ...recordOpts, beforeSteps: async () => void (await page.goto(url, { waitUntil: 'load' })) });
+    } else {
+      await session.openAndSettle(page, url, { ...ctx.route, actions: [] }, { freeze: false, fullPage: false });
+      recorded = await recordFrames(page, ctx.steps, recordOpts);
+    }
+    if (ctx.video) await page.screencast.stop();
+    const reduced = await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches).catch(() => false);
+    return { frames: recorded.frames, skipped: recorded.skipped, reduced, video: ctx.video && existsSync(ctx.video) ? ctx.video : undefined };
+  } finally {
+    await context.close().catch(() => undefined);
+  }
+}
+
+/**
+ * Detected routes whose changed files touch motion (transitions, keyframes, :hover, motion
+ * libraries...). Undefined, meaning "all of them", when an animation package changed.
+ */
+async function animatedRoutes(detection: DetectResult, cfg: ResolvedConfig): Promise<Set<string> | undefined> {
+  if (detection.dependencies.some((d) => isAnimationPackage(d.name))) return undefined;
+  const files = [...new Set(detection.routes.flatMap((h) => h.files))];
+  const lines = await changedLines(detection.mergeBase, detection.head.sha, files, cfg.repoRoot);
+  const animated = new Set<string>();
+  for (const hit of detection.routes) {
+    const tokens = stepTokens(hit.route.motion?.steps ?? cfg.motion.steps);
+    // A file without a text diff (renamed, binary, odd path) cannot be ruled out.
+    if (hit.files.some((f) => !lines.has(f) || touchesAnimation(f, lines.get(f)!, tokens))) animated.add(hit.route.path);
+  }
+  return animated;
+}
+
 /** Routes that get a motion clip: those with a visual change, or all of them with --motion-all. */
 export function motionTargets<T extends { path: string }>(candidates: T[], changedRoutes: Set<string>, all: boolean): T[] {
   return all ? candidates : candidates.filter((r) => changedRoutes.has(r.path));
-}
-
-async function recordWebm(
-  session: CaptureSession,
-  route: ResolvedRoute,
-  viewport: ViewportConfig,
-  theme: ThemeConfig,
-  steps: Step[],
-  durationMs: number,
-  ctx: { base: Side; head: Side; outDir: string; cfg: ResolvedConfig },
-): Promise<{ base?: string; head?: string }> {
-  const out: { base?: string; head?: string } = {};
-  const id = captureId(route, viewport, theme);
-  for (const side of [ctx.base, ctx.head]) {
-    const tmpDir = path.join(ctx.outDir, 'motion', `.tmp-${side.name}`);
-    const size = { width: viewport.width ?? 1280, height: viewport.height ?? 800 };
-    const context = await session.newContext(viewport, theme, { deviceScaleFactor: 1, recordVideo: { dir: tmpDir, size } }, true);
-    const page = await context.newPage();
-    try {
-      await session.openAndSettle(page, routeUrl(side.url, route.path, theme.query), { ...route, actions: [] }, { freeze: false, fullPage: false });
-      const start = Date.now();
-      await runSteps(page, steps, { timeoutMs: ctx.cfg.capture.timeoutMs, skipMissing: true });
-      const remaining = durationMs - (Date.now() - start);
-      if (remaining > 0) await page.waitForTimeout(remaining);
-    } finally {
-      await context.close();
-    }
-    const video = await page.video()?.path();
-    if (video) {
-      const file = path.join(ctx.outDir, 'motion', `${id}__${side.name === 'base' ? 'before' : 'after'}.webm`);
-      moveFile(video, file);
-      out[side.name] = rel(ctx.outDir, file);
-    }
-    rmSync(tmpDir, { recursive: true, force: true });
-  }
-  return out;
 }
 
 function auditTokens(captures: CaptureResult[], ctx: { outDir: string; tokenSet: TokenSet; cfg: ResolvedConfig; files: string[] }): Report['tokens'] {
