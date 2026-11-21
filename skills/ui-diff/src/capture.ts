@@ -9,6 +9,7 @@ import { DEV_OVERLAY_SELECTORS, fontState, freezeAnimations, hideCss, initScript
 import { exec } from './exec.js';
 import type { Box } from './image.js';
 import { log, redact, UiDiffError } from './log.js';
+import type { SideFingerprint } from './report.js';
 import type { SideName } from './sides.js';
 import { runSteps } from './steps.js';
 import { collectStyles } from './styles.js';
@@ -54,6 +55,8 @@ export interface CaptureRecord {
   skippedActions?: string[];
   /** Web fonts loaded, failed or still loading when the screenshot was taken. */
   fonts?: FontState;
+  /** Capture environment measured in the page (the fingerprint without commit and data label). */
+  environment?: Omit<SideFingerprint, 'commit' | 'data'>;
   /** `window.devicePixelRatio` measured in the page: device pixels per CSS pixel in the screenshot. */
   scale?: number;
   durationMs: number;
@@ -238,6 +241,29 @@ export class CaptureSession {
     return context;
   }
 
+  /** Measured in the page where it can be: what this capture was rendered with. */
+  private async environment(page: Page, target: CaptureTarget, fonts: FontState): Promise<Omit<SideFingerprint, 'commit' | 'data'>> {
+    const { cfg } = this.opts;
+    const measured = await page.evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+      deviceScaleFactor: window.devicePixelRatio,
+      userAgent: navigator.userAgent,
+      locale: navigator.language,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'reduce' : 'no-preference',
+      colorScheme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'no-preference',
+    }));
+    const clock = frozenTime(cfg, this.opts.runStart);
+    return {
+      viewport: { width: measured.width, height: measured.height, deviceScaleFactor: measured.deviceScaleFactor, isMobile: contextOptions(target.viewport, target.theme, cfg).isMobile ?? false },
+      browser: { name: this.browser.browserType().name(), version: this.browser.version(), userAgent: measured.userAgent },
+      fonts,
+      freeze: { clock: clock ? clock.toISOString() : null, seed: cfg.freeze.random ? cfg.freeze.seed : null, animations: cfg.freeze.animations, fonts: cfg.freeze.fonts },
+      media: { reducedMotion: measured.reducedMotion, colorScheme: measured.colorScheme, locale: measured.locale, timezone: measured.timezone },
+    };
+  }
+
   private async waitForFonts(page: Page, timeoutMs: number): Promise<void> {
     await settleFonts(page, timeoutMs);
     await waitForFontsAndImages(page, timeoutMs);
@@ -356,6 +382,7 @@ export class CaptureSession {
       if (opened.skippedActions.length) record.skippedActions = opened.skippedActions;
       record.scale = await page.evaluate(() => window.devicePixelRatio);
       record.fonts = await fontState(page);
+      record.environment = await this.environment(page, target, record.fonts);
       const shot = await this.screenshot(page, target.route, fullPage);
       mkdirSync(path.dirname(target.file), { recursive: true });
       writeFileSync(target.file, shot.buffer);

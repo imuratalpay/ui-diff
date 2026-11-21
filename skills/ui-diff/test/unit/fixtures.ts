@@ -1,4 +1,4 @@
-import type { Report } from '../../src/report.js';
+import type { Report, SideFingerprint } from '../../src/report.js';
 
 export function sampleReport(overrides: Partial<Report> = {}): Report {
   return {
@@ -79,6 +79,19 @@ export function sampleReport(overrides: Partial<Report> = {}): Report {
     },
     warnings: [],
     stats: { captures: 2, changed: 1, unchanged: 1, added: 0, removed: 0, errors: 0 },
+    ...overrides,
+  };
+}
+
+export function sideFingerprint(overrides: Partial<SideFingerprint> = {}): SideFingerprint {
+  return {
+    commit: '1a2b3c4d',
+    viewport: { width: 1280, height: 800, deviceScaleFactor: 1, isMobile: false },
+    browser: { name: 'chromium', version: '159.0.8154.6', userAgent: 'Mozilla/5.0 (X11; Linux x86_64) HeadlessChrome/159.0.8154.6' },
+    fonts: { loaded: ['Inter'], failed: [], pending: [] },
+    freeze: { clock: '2026-11-21T09:00:00.000Z', seed: 795556381, animations: true, fonts: true },
+    media: { reducedMotion: 'reduce', colorScheme: 'light', locale: 'en-US', timezone: 'UTC' },
+    data: 'not declared',
     ...overrides,
   };
 }

@@ -104,12 +104,18 @@ function changedSection(report: Report, captures: CaptureResult[], opts: RenderO
     } else if (c.images.head) {
       out.push(img(opts, opts.link(c.images.head), `${captureLabel(c, themes)} (head)`, 480), '');
     }
+    const env = c.fingerprint?.differences ?? [];
+    if (env.length) out.push(`> ⚠️ ${environmentWarning(env)}`, '');
     for (const w of c.warnings.slice(0, INLINE_WARNINGS)) out.push(`> ${w}`, '');
   }
   return out;
 }
 
 const INLINE_WARNINGS = 3;
+
+export function environmentWarning(differences: string[]): string {
+  return `**The capture environment differed between base and head**, so this diff may come from it rather than from the code: ${escapeText(differences.join('; '))}.`;
+}
 /** Truncation has its own "Partial captures" notice. */
 const TRUNCATION_WARNING = /taller than capture\.maxHeight|cut at capture\.maxHeight/;
 

@@ -831,6 +831,18 @@
       },
       "additionalProperties": false
     },
+    "fingerprint": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "dataLabel": {
+          "description": "What test data the app ran with (a fixture name, seed or dataset version), shown in the capture settings; \"not declared\" when unset",
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "additionalProperties": false
+    },
     "diff": {
       "default": {},
       "type": "object",

@@ -116,6 +116,10 @@ designer or PM who will not read the code:
 **Not checked:** `/settings` (needs login).
 ```
 
+A capture whose base and head environments differed (fonts, device pixel ratio, browser; see
+`fingerprint.differences` in `report.json`) gets a warning in the comment: name it in "worth a
+look" and do not describe that diff as a product change without checking the images.
+
 Guidelines: lead "worth a look" with likely-unintended changes (a page changed without its files
 changing, breakage at one viewport, new a11y issues, off-token values). Content that only moved
 (a taller hero pushing sections down) is matched row by row and reported as "shifted down Npx"

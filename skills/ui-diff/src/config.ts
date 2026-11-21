@@ -302,6 +302,16 @@ export const ConfigSchema = z
     themes: z.array(ThemeSchema).min(1).default([{ name: 'light', colorScheme: 'light' }]),
     capture: CaptureSchema.prefault({}),
     freeze: FreezeSchema.prefault({}).describe('Inputs frozen before every still capture, the same on both sides'),
+    fingerprint: z
+      .object({
+        dataLabel: z
+          .string()
+          .max(200)
+          .optional()
+          .describe('What test data the app ran with (a fixture name, seed or dataset version), shown in the capture settings; "not declared" when unset'),
+      })
+      .strict()
+      .prefault({}),
     diff: DiffSchema.prefault({}),
     preview: z
       .object({ base: z.string().optional(), head: z.string().optional() })

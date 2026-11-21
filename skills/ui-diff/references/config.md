@@ -157,6 +157,20 @@ A "page did not settle" warning names the element that kept moving and the `mask
 masked elements a stable size (for example `font-variant-numeric: tabular-nums` on counters) so
 they do not push the rest of the page around.
 
+## Fingerprint
+
+Each capture records what each side was rendered with, measured in the page: the commit, viewport
+size, `devicePixelRatio` and `isMobile`, browser name, version and user agent, web fonts loaded,
+failed or still loading, the freeze settings used (clock instant, seed, animations, font wait),
+reduced motion, color scheme, locale and timezone, and the test data label. It never records
+paths, host names, user names or environment variable values (font URLs are dropped; only family
+names are kept). When base and head differ in anything but the commit, the comment warns next to
+the diff that it may come from the capture environment and lists what differs.
+
+| Key | Default | Notes |
+|---|---|---|
+| `fingerprint.dataLabel` | — | What data the app ran with (a fixture name, seed or dataset version). Shown as "not declared" when unset: ui-diff does not guess it. |
+
 ## Diff
 
 | Key | Default | Notes |

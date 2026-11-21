@@ -40,6 +40,28 @@ export interface CaptureResult {
   images: { base?: string; head?: string; diff?: string; compare?: string; focus: string[] };
   warnings: string[];
   truncated: boolean;
+  /** What each side was rendered with; set when both sides were captured. */
+  fingerprint?: CaptureFingerprint;
+}
+
+/** What one side of a capture was rendered with, measured in the page. No paths, hosts, users or env values. */
+export interface SideFingerprint {
+  /** Commit the side was built from; absent for deployed previews. */
+  commit?: string;
+  viewport: { width: number; height: number; deviceScaleFactor: number; isMobile: boolean };
+  browser: { name: string; version: string; userAgent: string };
+  fonts: { loaded: string[]; failed: string[]; pending: string[] };
+  freeze: { clock: string | null; seed: number | null; animations: boolean; fonts: boolean };
+  media: { reducedMotion: string; colorScheme: string; locale: string; timezone: string };
+  /** `fingerprint.dataLabel`, or "not declared". */
+  data: string;
+}
+
+export interface CaptureFingerprint {
+  base?: SideFingerprint;
+  head?: SideFingerprint;
+  /** Everything except the commit that differs between base and head, one line each. */
+  differences: string[];
 }
 
 export interface ShiftedRun {
@@ -145,6 +167,42 @@ export function parseReport(raw: unknown, file: string): Report {
   throw new UiDiffError(`${file} has report version ${String(version)}, which ui-diff ${VERSION} cannot read`, {
     hint: newer ? 'It was written by a newer ui-diff: update this one, or rerun `ui-diff run`.' : 'Rerun `ui-diff run` to write a new report.',
   });
+}
+
+function listOrNone(values: string[]): string {
+  return values.length ? values.join(', ') : 'none';
+}
+
+/**
+ * Differences between the two sides' capture environments, ignoring the commit (which is
+ * supposed to differ). Anything listed here can change pixels without a code change.
+ */
+export function fingerprintDifferences(base: SideFingerprint, head: SideFingerprint): string[] {
+  const fields: Array<[string, (f: SideFingerprint) => string]> = [
+    ['viewport', (f) => `${f.viewport.width}×${f.viewport.height}`],
+    ['devicePixelRatio', (f) => String(f.viewport.deviceScaleFactor)],
+    ['isMobile', (f) => String(f.viewport.isMobile)],
+    ['browser', (f) => `${f.browser.name} ${f.browser.version}`],
+    ['user agent', (f) => f.browser.userAgent],
+    ['fonts loaded', (f) => listOrNone(f.fonts.loaded)],
+    ['fonts failed', (f) => listOrNone(f.fonts.failed)],
+    ['fonts still loading', (f) => listOrNone(f.fonts.pending)],
+    ['clock', (f) => f.freeze.clock ?? 'running'],
+    ['random seed', (f) => (f.freeze.seed === null ? 'not seeded' : String(f.freeze.seed))],
+    ['animations', (f) => (f.freeze.animations ? 'off' : 'on')],
+    ['font wait', (f) => (f.freeze.fonts ? 'on' : 'off')],
+    ['reduced motion', (f) => f.media.reducedMotion],
+    ['color scheme', (f) => f.media.colorScheme],
+    ['locale', (f) => f.media.locale],
+    ['timezone', (f) => f.media.timezone],
+    ['test data', (f) => f.data],
+  ];
+  const out: string[] = [];
+  for (const [label, value] of fields) {
+    const [b, h] = [value(base), value(head)];
+    if (b !== h) out.push(`${label}: base ${b} · head ${h}`);
+  }
+  return out;
 }
 
 export function computeStats(captures: CaptureResult[]): Report['stats'] {
@@ -254,6 +312,11 @@ export function autoSummary(report: Report): string {
     }
   }
   if (s.errors) lines.push(`- ${s.errors} capture${s.errors === 1 ? '' : 's'} failed — see the details below.`);
+  const env = changed.filter((c) => c.fingerprint?.differences.length);
+  if (env.length) {
+    const where = env.map((c) => `\`${c.route.path}\` ${c.viewport}${report.themes.length > 1 ? `/${c.theme}` : ''}`).join(', ');
+    lines.push(`- ⚠️ Capture environment differed on ${where} (${[...new Set(env.flatMap((c) => c.fingerprint!.differences.map((d) => d.split(':')[0])))].join(', ')}): those diffs may not come from the code.`);
+  }
   if (report.a11y) {
     const { added, fixed } = report.a11y;
     if (added.length || fixed.length) {

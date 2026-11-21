@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -96,6 +96,49 @@ describe('input freeze', { timeout: 300_000, skip: !FONT && 'no TrueType font fo
     assert.equal(capture.error, undefined);
     assert.equal(capture.status, 'unchanged', `expected zero diff, got ${capture.diff?.changedPixels} changed pixels`);
     assert.equal(capture.diff?.changedPixels, 0);
+  });
+
+  it('records a measured capture fingerprint per side, without paths, hosts, users or env values', async () => {
+    const outDir = path.join(dir, 'fingerprint');
+    const { report } = await runPipeline({ cfg: loadConfig(repo, repo), outDir, base: sha, head: sha, allRoutes: true });
+    const fp = report.captures[0].fingerprint!;
+    assert.deepEqual(fp.differences, []);
+    for (const side of [fp.base!, fp.head!]) {
+      assert.equal(side.commit, sha);
+      assert.deepEqual(side.viewport, { width: 800, height: 600, deviceScaleFactor: 1, isMobile: false });
+      assert.equal(side.browser.name, 'chromium');
+      assert.match(side.browser.version, /^\d+\.\d+/);
+      assert.match(side.browser.userAgent, /Chrome\//);
+      assert.deepEqual(side.fonts, { loaded: ['Late', 'LateJs'], failed: ['Gone'], pending: [] });
+      assert.deepEqual(side.freeze, { clock: report.createdAt, seed: 795556381, animations: true, fonts: true });
+      assert.deepEqual(side.media, { reducedMotion: 'reduce', colorScheme: 'light', locale: 'en-US', timezone: 'UTC' });
+      assert.equal(side.data, 'not declared');
+    }
+    const stored = readFileSync(path.join(outDir, 'report.json'), 'utf8');
+    const json = JSON.stringify(report.captures[0].fingerprint);
+    for (const secret of [dir, repo, os.homedir(), os.hostname(), os.userInfo().username, process.env.PATH ?? '']) {
+      if (secret.length > 3) assert.ok(!json.includes(secret), `fingerprint contains ${secret}`);
+    }
+    assert.ok(stored.includes('"fingerprint"'));
+  });
+
+  it('warns in the comment when base and head were captured in different environments', async () => {
+    writeFileSync(path.join(repo, 'index.html'), PAGE.replace("url(/missing.ttf) format('truetype')", "url(/late.ttf?gone) format('truetype')"));
+    git(repo, 'add', '-A');
+    git(repo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'the missing font now loads');
+    const head = git(repo, 'rev-parse', 'HEAD');
+    try {
+      const cfg = loadConfig(repo, repo);
+      const outDir = path.join(dir, 'env-diff');
+      const { report } = await runPipeline({ cfg: { ...cfg, fingerprint: { dataLabel: 'fixture page v1' } }, outDir, base: sha, head, allRoutes: true });
+      const capture = report.captures[0];
+      assert.equal(capture.status, 'changed');
+      assert.deepEqual(capture.fingerprint!.differences, ['fonts loaded: base Late, LateJs · head Gone, Late, LateJs', 'fonts failed: base Gone · head none']);
+      assert.equal(capture.fingerprint!.head!.data, 'fixture page v1');
+      assert.match(readFileSync(path.join(outDir, 'comment.local.md'), 'utf8'), /The capture environment differed between base and head\*\*.*fonts failed: base Gone · head none/);
+    } finally {
+      git(repo, 'reset', '-q', '--hard', sha);
+    }
   });
 
   it('shows the same page as changed when the clock is not frozen (the fixture really moves)', async () => {
