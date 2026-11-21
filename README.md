@@ -217,6 +217,7 @@ The workflow also documents an optional `paths:` filter for skipping the workflo
   "globalFiles": ["src/styles/**", "tailwind.config.*"],
   "themes": [{ "name": "light" }, { "name": "dark", "colorScheme": "dark", "query": { "theme": "dark" } }],
   "capture": { "mask": [".hero-carousel"] },
+  "ignore": [".ad-slot"],
   "freeze": { "time": "2026-01-15T09:30:00Z" },
   "a11y": { "enabled": true },
   "tokens": { "enabled": true, "files": ["src/styles/tokens.css"] }

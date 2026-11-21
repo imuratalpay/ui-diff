@@ -473,6 +473,20 @@
                     "additionalProperties": false
                   }
                 ]
+              },
+              "focus": {
+                "description": "Added to the top-level focus for this route",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "ignore": {
+                "description": "Added to the top-level ignore for this route",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [
@@ -486,6 +500,22 @@
     "globalFiles": {
       "default": [],
       "description": "Globs whose changes affect every route",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "focus": {
+      "default": [],
+      "description": "CSS selectors of the only areas to compare (pixels and styles); the rest of the page is not diffed",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ignore": {
+      "default": [],
+      "description": "CSS selectors of areas not to compare: painted over in the screenshots and left out of the style diff",
       "type": "array",
       "items": {
         "type": "string"

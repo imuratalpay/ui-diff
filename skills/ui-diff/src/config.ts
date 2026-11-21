@@ -77,6 +77,8 @@ const RouteObjectSchema = z
     themes: z.array(z.string()).optional(),
     variants: VariantSchema.optional(),
     motion: z.union([z.boolean(), RouteMotionSchema]).optional(),
+    focus: z.array(z.string()).optional().describe('Added to the top-level focus for this route'),
+    ignore: z.array(z.string()).optional().describe('Added to the top-level ignore for this route'),
   })
   .strict();
 
@@ -301,6 +303,8 @@ export const ConfigSchema = z
     copyFiles: z.array(z.string()).default(['.env', '.env.local', '.env.development.local']),
     routes: z.array(z.union([z.string().startsWith('/'), RouteObjectSchema])).default([]),
     globalFiles: z.array(z.string()).default([]).describe('Globs whose changes affect every route'),
+    focus: z.array(z.string()).default([]).describe('CSS selectors of the only areas to compare (pixels and styles); the rest of the page is not diffed'),
+    ignore: z.array(z.string()).default([]).describe('CSS selectors of areas not to compare: painted over in the screenshots and left out of the style diff'),
     detect: DetectSchema.prefault({}),
     viewports: z
       .array(ViewportSchema)
@@ -381,6 +385,9 @@ export interface ResolvedRoute {
   themes?: string[];
   variants?: VariantSpec;
   motion?: RouteMotionConfig;
+  /** Route-level additions to the top-level focus and ignore. */
+  focus: string[];
+  ignore: string[];
   configured: boolean;
 }
 
@@ -471,6 +478,8 @@ export function resolveRoute(input: string | z.infer<typeof RouteObjectSchema>, 
         }
       : undefined,
     motion,
+    focus: route.focus ?? [],
+    ignore: route.ignore ?? [],
     configured,
   };
 }

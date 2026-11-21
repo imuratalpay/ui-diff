@@ -528,6 +528,12 @@ function renderOnce(report: Report, opts: RenderOptions): string {
     `**Base** ${code(sideLabel(report.base))} → **Head** ${code(sideLabel(report.head))} · ${report.routes.length} route${report.routes.length === 1 ? '' : 's'} · ${report.viewports.join(', ')} · ${report.themes.join(', ')}`,
     '',
   );
+  if (report.regions) {
+    const list = (selectors: string[]) => selectors.map(code).join(', ');
+    const parts = [report.regions.focus.length && `Focused on ${list(report.regions.focus)} (only changes inside are compared)`, report.regions.ignore.length && `ignored ${list(report.regions.ignore)}`].filter(Boolean);
+    const line = parts.join('; ');
+    out.push(`<sub>${line[0].toUpperCase()}${line.slice(1)}.</sub>`, '');
+  }
   const summary = opts.summary?.trim();
   if (notChecked) out.push(`> ${notCheckedNotice(notChecked)}`, '');
   if (summary || !notChecked) out.push('#### Summary', '', (summary || autoSummary(report)).trim(), '');

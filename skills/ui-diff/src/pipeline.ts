@@ -11,7 +11,7 @@ import { detectChanges, resolveBaseRef, type DetectResult } from './detect.js';
 import { composeCompare, diffPngs, focusBoxes } from './diff.js';
 import { diffElements, explainRegions, matchElements } from './elements.js';
 import { changedLines, git, gitCommonDir, mergeBase, revParse, shortSha } from './git.js';
-import { COLORS, composeRow, readPng, resizeToWidth, writePng } from './image.js';
+import { COLORS, composeRow, readPng, resizeToWidth, writePng, type Box } from './image.js';
 import { captureKey, keyId, type CaptureKey } from './key.js';
 import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
@@ -342,6 +342,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       captures,
       ...extras,
       ...(baseCache ? { baseCache } : {}),
+      ...reportRegions(cfg, prepared.routes),
       warnings,
       stats: computeStats(captures),
     };
@@ -428,7 +429,7 @@ async function prepareStage(opts: RunOptions, detected: Detected, runStart: Date
   const previewUrls = [detected.baseUrl, detected.headUrl].filter((u): u is string => Boolean(u));
   const auth = previewUrls.length || cfg.auth?.origins?.length ? resolveAuth(cfg.auth, previewUrls) : undefined;
   if (cfg.auth && !auth && previewUrls.length === 0) log.debug('auth configured but both sides run locally; credentials not used');
-  return { routes, viewports, themes, plans: planCaptures(cfg, routes, viewports, themes, a11yOn), reportBase, motionOn, a11yOn, tokens, stylesOn: Boolean(tokens) || Boolean(opts.collectStyles) || cfg.styleDiff.enabled, auth, detection };
+  return { routes, viewports, themes, plans: planCaptures(cfg, routes, viewports, themes, a11yOn), reportBase, motionOn, a11yOn, tokens, stylesOn: Boolean(tokens) || Boolean(opts.collectStyles) || cfg.styleDiff.enabled || routes.some((r) => regionsOf(cfg, r).focus.length + regionsOf(cfg, r).ignore.length > 0), auth, detection };
 }
 
 async function loadTokens(opts: RunOptions): Promise<{ set: TokenSet; files: string[] }> {
@@ -556,6 +557,17 @@ function cachedBase(request: SideRequest, entry: BaseCacheEntry, started: number
   };
 }
 
+function reportRegions(cfg: ResolvedConfig, routes: ResolvedRoute[]): Pick<Report, 'regions'> {
+  const focus = [...new Set(routes.flatMap((r) => regionsOf(cfg, r).focus))];
+  const ignore = [...new Set(routes.flatMap((r) => regionsOf(cfg, r).ignore))];
+  return focus.length || ignore.length ? { regions: { focus, ignore } } : {};
+}
+
+/** The focus and ignore selectors that apply to a route: the top-level ones plus its own. */
+export function regionsOf(cfg: ResolvedConfig, route: ResolvedRoute): { focus: string[]; ignore: string[] } {
+  return { focus: [...new Set([...cfg.focus, ...route.focus])], ignore: [...new Set([...cfg.ignore, ...route.ignore])] };
+}
+
 /** Everything besides the base commit and the browser that changes what base captures look like. */
 function baseCaptureConfig(cfg: ResolvedConfig, prepared: Prepared): unknown {
   const copied = cfg.copyFiles.map((f) => {
@@ -563,7 +575,7 @@ function baseCaptureConfig(cfg: ResolvedConfig, prepared: Prepared): unknown {
     return [f, existsSync(file) ? createHash('sha256').update(readFileSync(file)).digest('hex') : null];
   });
   return {
-    plans: prepared.plans.map((p) => ({ id: p.id, route: p.route.path, actions: p.route.actions, waitFor: p.route.waitFor, mask: p.route.mask, hide: p.route.hide, fullPage: p.route.fullPage, viewport: p.viewport, theme: p.theme, a11y: p.a11y, focus: p.focus })),
+    plans: prepared.plans.map((p) => ({ id: p.id, route: p.route.path, actions: p.route.actions, waitFor: p.route.waitFor, mask: p.route.mask, hide: p.route.hide, fullPage: p.route.fullPage, viewport: p.viewport, theme: p.theme, a11y: p.a11y, focusOrder: p.focus, regions: regionsOf(cfg, p.route) })),
     capture: cfg.capture,
     freeze: cfg.freeze,
     styles: prepared.stylesOn,
@@ -641,6 +653,12 @@ function diffStage(plans: Plan[], records: Map<string, CaptureRecord>, ctx: { ba
       if (r?.pageErrors.length) c.warnings.push(`${label}: uncaught page error: ${r.pageErrors[0]}`);
       if (r && r.ok && (!r.stable || r.unsettled)) c.warnings.push(unsettledWarning(label, r));
     }
+    const plan = plans.find((p) => p.id === c.id)!;
+    const regions = regionsOf(cfg, plan.route);
+    if (regions.focus.length || regions.ignore.length) {
+      c.regions = { ...regions, focusOnly: Boolean(focusArea(plan, b ?? ({} as CaptureRecord), h ?? ({} as CaptureRecord), cfg)) };
+      c.warnings.push(...regionWarnings(regions, { base: b?.regionHits, head: h?.regionHits }));
+    }
     if (b?.truncated || h?.truncated) {
       c.truncated = true;
       c.warnings.push(`page is taller than capture.maxHeight (${cfg.capture.maxHeight}px); only the top part was compared`);
@@ -660,7 +678,7 @@ function styleDiffStage(captures: CaptureResult[], records: Map<string, CaptureR
     const [base, head] = [read(records.get(`base:${c.id}`)?.stylesFile), read(records.get(`head:${c.id}`)?.stylesFile)];
     if (!base || !head) continue;
     const match = matchElements(base.elements, head.elements);
-    const all = diffElements(base, head, match);
+    const all = diffElements(base, head, match, { focusOnly: c.regions?.focusOnly });
     const kept = all.slice(0, cfg.styleDiff.maxChanges);
     const regions = c.diff ? explainRegions(c.diff.regions, c.diff.scale, head, base, kept) : [];
     const count = (level: string) => match.pairs.filter((p) => p.confidence === level).length;
@@ -747,6 +765,30 @@ export function skippedActionWarning(side: string, action: string): string {
   return `${side}: route action "${action}" skipped: no element matches it on ${side}`;
 }
 
+/**
+ * The boxes the diff is limited to when the route has focus selectors: every matching element on
+ * either side. Undefined (the whole page) without focus, or when focus matched nothing (warned).
+ */
+function focusArea(plan: Plan, baseRec: CaptureRecord, headRec: CaptureRecord, cfg: ResolvedConfig): Box[] | undefined {
+  if (regionsOf(cfg, plan.route).focus.length === 0) return undefined;
+  const boxes = [...(baseRec.focusBoxes ?? []), ...(headRec.focusBoxes ?? [])];
+  return boxes.length ? boxes : undefined;
+}
+
+/** Warnings for focus and ignore selectors that matched nothing on a side, and for a focus that fell back to the whole page. */
+export function regionWarnings(regions: { focus: string[]; ignore: string[] }, hits: Partial<Record<'base' | 'head', CaptureRecord['regionHits']>>): string[] {
+  const out: string[] = [];
+  for (const kind of ['focus', 'ignore'] as const) {
+    for (const selector of regions[kind]) {
+      const missing = (['base', 'head'] as const).filter((side) => hits[side] && (hits[side]![kind][selector] ?? 0) === 0);
+      if (missing.length) out.push(`${kind} selector \`${selector}\` matched nothing on ${missing.join(' and ')}`);
+    }
+  }
+  const anyFocus = (['base', 'head'] as const).some((side) => regions.focus.some((sel) => (hits[side]?.focus[sel] ?? 0) > 0));
+  if (regions.focus.length && !anyFocus) out.push('no focus selector matched, so the whole page was compared');
+  return out;
+}
+
 /** Comparing two error pages says nothing about the UI, so HTTP errors fail the capture. */
 export function httpProblem(side: 'base' | 'head', status: number | undefined): string | undefined {
   if (status === undefined || status < 400) return undefined;
@@ -796,6 +838,7 @@ function compareCapture(plan: Plan, baseRec: CaptureRecord, headRec: CaptureReco
   if (baseRec.scale !== undefined && headRec.scale !== undefined && baseRec.scale !== headRec.scale) {
     result.warnings.push(`base and head rendered at different device pixel ratios (${baseRec.scale}× and ${headRec.scale}×); sizes use head's`);
   }
+  const only = focusArea(plan, baseRec, headRec, cfg);
   const diff = diffPngs(readPng(baseRec.file!), readPng(headRec.file!), {
     threshold: cfg.diff.threshold,
     includeAA: cfg.diff.includeAA,
@@ -803,6 +846,7 @@ function compareCapture(plan: Plan, baseRec: CaptureRecord, headRec: CaptureReco
     highlight: cfg.diff.highlightColor,
     scale,
     alignShifts: cfg.diff.alignShifts,
+    only,
   });
   const css = (n: number) => Math.round(n / scale);
   result.status = diff.changed ? 'changed' : 'unchanged';

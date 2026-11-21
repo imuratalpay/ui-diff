@@ -84,8 +84,8 @@ base-<first 12 hex of the base commit>-<16 hex of sha256(base commit, capture co
 ```
 
 where the capture config hash covers the capture plan (routes with their actions, masks, waits,
-viewports, themes, a11y and focus-order flags), `capture`, `freeze`, the style and token settings
-and how the app is built and started (`startCommand`, `buildCommand`,
+viewports, themes, a11y and focus-order flags, `focus` and `ignore`), `capture`, `freeze`, the style
+and token settings and how the app is built and started (`startCommand`, `buildCommand`,
 `install`, `cwd`, `baseUrl`, `env` and the contents of `copyFiles`). When the key matches a complete
 entry, base is not checked out, installed, built, started or captured: the timing line says `base:
 cached` and the capture settings say `Base cache: reused`. Head is then frozen at the instant the
@@ -114,6 +114,22 @@ cached.
 | `motion` | `true` or `{ steps, durationMs, viewport, theme, fromNavigation }`, see `extras.md`. |
 
 `globalFiles`: globs whose changes affect every route (global CSS, theme, root layout).
+
+**Focus and ignore regions.** `focus` and `ignore` are CSS selectors, at the top level for every
+route and on a route for that route only (added to the top-level ones):
+
+```json
+{ "focus": [".pricing-table"], "ignore": [".ad-slot", "[data-testid=live-visitors]"],
+  "routes": [{ "path": "/checkout", "focus": ["form.checkout"] }] }
+```
+
+`ignore` is painted over in the screenshots on both sides, like `capture.mask`, and left out of the
+style diff. With `focus`, only the elements it matches (and what they contain) are compared: the
+pixel diff counts changes inside their boxes only, a page that only grew elsewhere is unchanged,
+and the style diff lists only those elements. Selectors are resolved on every capture from the
+element map; one that matches nothing on a side is a warning in the report and the comment, never
+an error, and when no focus selector matches at all the whole page is compared (and the warning
+says so). The comment names the focused and ignored regions in one line.
 
 Dependency changes are compared by declared range (`package.json`) and resolved version
 (lockfiles). Other packages are listed in the comment as "not checked visually"; a changed

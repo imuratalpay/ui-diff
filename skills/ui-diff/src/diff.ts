@@ -12,6 +12,8 @@ export interface DiffOptions {
   scale?: number;
   /** Align rows first so content that only moved vertically is not counted as changed (default true). */
   alignShifts?: boolean;
+  /** When set, only changes inside these boxes (device px) count; a size change alone does not. */
+  only?: Box[];
 }
 
 export interface DiffOutcome {
@@ -159,9 +161,24 @@ export function diffPngs(before: PNG, after: PNG, opts: DiffOptions): DiffOutcom
     changedPixels = pixelmatch(a.data, b.data, maskOut, width, height, pixelOpts);
     for (let i = 0; i < mask.length; i++) mask[i] = maskOut[i * 4 + 3] > 0 ? 1 : 0;
   }
+  let removedPixels = removedBoxes.length ? removedRows * width : 0;
+  if (opts.only) {
+    const allowed = new Uint8Array(width * height);
+    for (const box of opts.only) {
+      const b = clampBox(box, width, height);
+      for (let y = b.y; y < b.y + b.height; y++) allowed.fill(1, y * width + b.x, y * width + b.x + b.width);
+    }
+    changedPixels = 0;
+    for (let i = 0; i < mask.length; i++) {
+      mask[i] &= allowed[i];
+      changedPixels += mask[i];
+    }
+    const kept = removedBoxes.filter((r) => opts.only!.some((b) => intersects(r, b)));
+    if (kept.length < removedBoxes.length) removedPixels = 0;
+    removedBoxes.splice(0, removedBoxes.length, ...kept);
+  }
   const sizeChanged = before.width !== after.width || before.height !== after.height;
-  const removedPixels = removedBoxes.length ? removedRows * width : 0;
-  const changed = changedPixels + removedPixels >= Math.max(1, opts.minChangedPixels) || sizeChanged;
+  const changed = changedPixels + removedPixels >= Math.max(1, opts.minChangedPixels) || (sizeChanged && !opts.only);
   const regions = changed
     ? mergeBoxes([...findRegions(mask, width, height, Math.round(8 * scale), Math.round(24 * scale)), ...removedBoxes], Math.round(24 * scale)).sort((x, y) => area(y) - area(x))
     : [];

@@ -221,20 +221,31 @@ const PAGE_HELPERS = String.raw`
   function matchesAny(el, selectors) {
     return selectors.some((s) => { try { return Boolean(el.closest(s)); } catch (e) { return false; } });
   }
-  function snapshotStyles(maxElements, ignore, masked) {
+  function matches(el, selector) {
+    try { return el.matches(selector); } catch (e) { return false; }
+  }
+  // masked: painted over or hidden selectors (elements inside are flagged); focus: the only areas to
+  // compare (matching elements are flagged). Hits count every element each selector matches, visible or not.
+  function snapshotStyles(maxElements, ignore, masked, focus) {
     masked = masked || [];
+    focus = focus || [];
+    const maskHits = masked.map(() => 0);
+    const focusHits = focus.map(() => 0);
     const out = [];
     const indexOf = new Map();
     const dpr = window.devicePixelRatio || 1;
     let capped = false;
     const all = document.body ? allElements(document.body, []) : [];
     for (const el of all) {
+      masked.forEach((s, i) => { if (matches(el, s)) maskHits[i]++; });
+      focus.forEach((s, i) => { if (matches(el, s)) focusHits[i]++; });
+      if (capped) continue;
       if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'BR', 'HEAD', 'META', 'LINK'].includes(el.tagName)) continue;
       if (ignore.length && ignore.some((s) => { try { return el.closest(s); } catch (e) { return false; } })) continue;
       const cs = getComputedStyle(el);
       const r = el.getBoundingClientRect();
       if (!visible(el, cs, r)) continue;
-      if (out.length >= maxElements) { capped = true; break; }
+      if (out.length >= maxElements) { capped = true; continue; }
       const borderColor = [];
       for (const side of ['Top', 'Right', 'Bottom', 'Left']) {
         if (cs['border' + side + 'Style'] !== 'none' && parseFloat(cs['border' + side + 'Width']) > 0) borderColor.push(cs['border' + side + 'Color']);
@@ -266,6 +277,7 @@ const PAGE_HELPERS = String.raw`
         attrs: { testid, id: el.id || undefined, ariaLabel },
         parent,
         masked: masked.length && matchesAny(el, masked) ? true : undefined,
+        focus: focus.length && focus.some((sel) => matches(el, sel)) ? true : undefined,
         deviceBox: { x: Math.round(box.x * dpr), y: Math.round(box.y * dpr), width: Math.round(box.width * dpr), height: Math.round(box.height * dpr) },
         styles: {
           color: cs.color,
@@ -293,7 +305,7 @@ const PAGE_HELPERS = String.raw`
         },
       });
     }
-    return { elements: out, capped };
+    return { elements: out, capped, maskHits, focusHits };
   }
   function normalizeColors(list) {
     const canvas = document.createElement('canvas');

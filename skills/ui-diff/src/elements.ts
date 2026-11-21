@@ -273,13 +273,20 @@ function weight(change: PropertyChange, colors: { before?: RGBAValue; after?: RG
  * moved because an earlier sibling grew or that resized because its children changed is a
  * consequence and not listed, and an added or removed subtree is one entry.
  */
-export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: ElementMatch): ElementChange[] {
+/** The element matches a focus selector or sits inside one that does. */
+function inFocus(list: StyledElement[], index: number): boolean {
+  for (let i: number | null | undefined = index; i != null; i = list[i].parent) if (list[i].focus) return true;
+  return false;
+}
+
+export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: ElementMatch, opts: { focusOnly?: boolean } = {}): ElementChange[] {
   const baseOf = new Map(match.pairs.map((p) => [p.head, p] as const));
   const raw = new Map<number, { pair: ElementPair; changes: PropertyChange[]; dx: number; dy: number; dw: number; dh: number }>();
 
   for (const pair of match.pairs) {
     const [b, h] = [base.elements[pair.base], head.elements[pair.head]];
     if (b.masked || h.masked) continue;
+    if (opts.focusOnly && !inFocus(head.elements, pair.head) && !inFocus(base.elements, pair.base)) continue;
     const [mb, mh] = [measured(b, base.colors), measured(h, head.colors)];
     const changes: PropertyChange[] = [];
     mb.forEach(([property, group, before], i) => {
@@ -369,6 +376,7 @@ export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: El
     for (const i of indices) {
       const e = list[i];
       if (e.masked || (e.parent != null && set.has(e.parent))) continue;
+      if (opts.focusOnly && !inFocus(list, i)) continue;
       let inside = 0;
       for (const j of indices) for (let p = list[j].parent; p != null; p = list[p].parent) if (p === i) inside++;
       const area = e.box.width * e.box.height;

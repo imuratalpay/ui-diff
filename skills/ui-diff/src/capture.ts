@@ -51,6 +51,10 @@ export interface CaptureRecord {
   stylesCapped?: boolean;
   /** Elements in the element map. */
   stylesCount?: number;
+  /** How many elements each focus and ignore selector matched on this page. */
+  regionHits?: { focus: Record<string, number>; ignore: Record<string, number> };
+  /** Device-px boxes of the elements matching a focus selector. */
+  focusBoxes?: Box[];
   /** Time spent on the style snapshot and on axe plus focus order, within durationMs. */
   stylesMs?: number;
   a11yMs?: number;
@@ -333,7 +337,7 @@ export class CaptureSession {
     fullPage: boolean,
   ): Promise<{ buffer: Buffer; stable: boolean; attempts: number; truncated: boolean; unsettled?: UnsettledRegion[]; frozeTimers: boolean }> {
     const { cfg } = this.opts;
-    const masks = [...cfg.capture.mask, ...route.mask];
+    const masks = [...cfg.capture.mask, ...route.mask, ...cfg.ignore, ...route.ignore];
     const hidden = [...cfg.capture.hide, ...route.hide, ...(cfg.capture.hideDevOverlays ? DEV_OVERLAY_SELECTORS : [])];
     const viewport = page.viewportSize() ?? { width: 1280, height: 800 };
     let truncated = false;
@@ -419,8 +423,14 @@ export class CaptureSession {
       if (shot.frozeTimers) record.frozeTimers = true;
       if (target.styles) {
         const stylesStart = performance.now();
-        const masked = [...cfg.capture.mask, ...target.route.mask, ...cfg.capture.hide, ...target.route.hide, ...(cfg.capture.hideDevOverlays ? DEV_OVERLAY_SELECTORS : [])];
-        const { snapshot, capped } = await collectStyles(page, { maxElements: cfg.capture.styleMaxElements, ignore: cfg.tokens.ignoreSelectors, extraColors: target.styles.extraColors, masked });
+        const ignored = [...cfg.ignore, ...target.route.ignore];
+        const focus = [...cfg.focus, ...target.route.focus];
+        const masked = [...ignored, ...cfg.capture.mask, ...target.route.mask, ...cfg.capture.hide, ...target.route.hide, ...(cfg.capture.hideDevOverlays ? DEV_OVERLAY_SELECTORS : [])];
+        const { snapshot, capped, hits } = await collectStyles(page, { maxElements: cfg.capture.styleMaxElements, ignore: cfg.tokens.ignoreSelectors, extraColors: target.styles.extraColors, masked, focus });
+        if (ignored.length || focus.length) {
+          record.regionHits = { focus: Object.fromEntries(focus.map((sel, i) => [sel, hits.focus[i]])), ignore: Object.fromEntries(ignored.map((sel, i) => [sel, hits.masked[i]])) };
+          record.focusBoxes = snapshot.elements.filter((e) => e.focus).map((e) => e.deviceBox!);
+        }
         mkdirSync(path.dirname(target.styles.file), { recursive: true });
         writeFileSync(target.styles.file, JSON.stringify(snapshot));
         record.stylesFile = target.styles.file;

@@ -47,6 +47,8 @@ export interface CaptureResult {
   /** Size of each side's element map (styles/<side>/<id>.json); capped when capture.styleMaxElements cut it short. */
   elementMap?: Partial<Record<'base' | 'head', { elements: number; capped?: boolean }>>;
   styleDiff?: CaptureStyleDiff;
+  /** Focus and ignore selectors of this capture; focusOnly when the diff was limited to the focused elements. */
+  regions?: { focus: string[]; ignore: string[]; focusOnly: boolean };
 }
 
 /** What one side of a capture was rendered with, measured in the page. No paths, hosts, users or env values. */
@@ -220,6 +222,8 @@ export interface Report {
   /** Set when nothing was captured: why (see `notCheckedReason`). */
   notChecked?: string;
   baseCache?: BaseCacheInfo;
+  /** Focus and ignore selectors used by any captured route. */
+  regions?: { focus: string[]; ignore: string[] };
   timings?: Timings;
   warnings: string[];
   stats: { captures: number; changed: number; unchanged: number; added: number; removed: number; errors: number };

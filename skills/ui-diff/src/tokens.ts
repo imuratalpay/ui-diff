@@ -55,8 +55,10 @@ export interface StyledElement {
   attrs?: { testid?: string; id?: string; ariaLabel?: string };
   /** Index of the nearest recorded ancestor in `elements`. */
   parent?: number | null;
-  /** Inside a capture.mask or hide selector: painted over or hidden in the screenshot, so not compared. */
+  /** Inside a capture.mask, hide or ignore selector: painted over or hidden in the screenshot, so not compared. */
   masked?: boolean;
+  /** Matches a focus selector: only these elements and what they contain are compared. */
+  focus?: boolean;
   /** `box` in device pixels (the screenshot's coordinates). */
   deviceBox?: Box;
   styles: {

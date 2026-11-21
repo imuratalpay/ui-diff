@@ -10,6 +10,14 @@ export interface StyleCollectOptions {
   extraColors: string[];
   /** Selectors masked or hidden in the screenshot; elements inside them are flagged `masked`. */
   masked?: string[];
+  /** Selectors of the only areas to compare; matching elements are flagged `focus`. */
+  focus?: string[];
+}
+
+/** How many elements each masked and focus selector matched (visible or not), in the order given. */
+export interface SelectorHits {
+  masked: number[];
+  focus: number[];
 }
 
 /**
@@ -18,12 +26,12 @@ export interface StyleCollectOptions {
  * token audit and the style diff compare; every color is normalized by the browser. `capped` is
  * true when `maxElements` cut the list short.
  */
-export async function collectStyles(page: Page, opts: StyleCollectOptions): Promise<{ snapshot: StyleSnapshot; capped: boolean }> {
+export async function collectStyles(page: Page, opts: StyleCollectOptions): Promise<{ snapshot: StyleSnapshot; capped: boolean; hits: SelectorHits }> {
   return page.evaluate(
-    ({ max, ignore, extra, masked }) => {
-      type Snapshot = { elements: Array<{ styles: { color: string; backgroundColor: string; borderColor: string[]; borderColors?: string[] } }>; capped: boolean };
-      const helpers = (window as unknown as { __uiDiff: { snapshotStyles(m: number, i: string[], k: string[]): Snapshot; normalizeColors(l: string[]): Record<string, unknown> } }).__uiDiff;
-      const { elements, capped } = helpers.snapshotStyles(max, ignore, masked);
+    ({ max, ignore, extra, masked, focus }) => {
+      type Snapshot = { elements: Array<{ styles: { color: string; backgroundColor: string; borderColor: string[]; borderColors?: string[] } }>; capped: boolean; maskHits: number[]; focusHits: number[] };
+      const helpers = (window as unknown as { __uiDiff: { snapshotStyles(m: number, i: string[], k: string[], f: string[]): Snapshot; normalizeColors(l: string[]): Record<string, unknown> } }).__uiDiff;
+      const { elements, capped, maskHits, focusHits } = helpers.snapshotStyles(max, ignore, masked, focus);
       const colors = new Set<string>(extra);
       for (const el of elements) {
         colors.add(el.styles.color);
@@ -31,9 +39,9 @@ export async function collectStyles(page: Page, opts: StyleCollectOptions): Prom
         for (const c of el.styles.borderColor) colors.add(c);
         for (const c of el.styles.borderColors ?? []) colors.add(c);
       }
-      return { snapshot: { elements, colors: helpers.normalizeColors([...colors]) } as unknown as StyleSnapshot, capped };
+      return { snapshot: { elements, colors: helpers.normalizeColors([...colors]) } as unknown as StyleSnapshot, capped, hits: { masked: maskHits, focus: focusHits } };
     },
-    { max: opts.maxElements, ignore: opts.ignore, extra: opts.extraColors, masked: opts.masked ?? [] },
+    { max: opts.maxElements, ignore: opts.ignore, extra: opts.extraColors, masked: opts.masked ?? [], focus: opts.focus ?? [] },
   );
 }
 

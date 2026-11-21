@@ -65,6 +65,8 @@ The JSON lists each route with `reasons` and `confidence`, plus:
 
 - `unmatched`: UI files it could not place. Find their pages yourself (grep for imports) and pass
   them with `--routes`.
+- If the user only cares about part of a page, or a part is noise (ads, live feeds), set `focus` or
+  `ignore` selectors in the config; a selector that matches nothing is reported as a warning.
 - `needsExample`: dynamic routes (`/blog/[slug]`). Find a real id and pass `--routes /blog/hello`.
 - `notes`: e.g. routes beyond `detect.maxRoutes`.
 - `dependencies`: changed packages from `package.json` and lockfiles. A `ui: true` one (React,
