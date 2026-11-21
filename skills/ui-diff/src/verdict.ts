@@ -257,15 +257,19 @@ export interface EffectLine {
  * 109.5×40 → 117.5×48px, moved 8px up (from the padding change)"), then other elements.
  */
 export function effectLines(row: MeasuredRow): EffectLine[] {
-  const byElement = new Map<string, { element?: { name: string; selector: string }; parts: string[] }>();
+  const byElement = new Map<string, { element?: { name: string; selector: string }; parts: string[]; scoped: boolean }>();
   for (const e of row.effects) {
     const own = e.name === row.name && e.selector === row.selector;
     const key = own ? '' : `${e.name}\u0000${e.selector}`;
-    const line = byElement.get(key) ?? { ...(own ? {} : { element: { name: e.name, selector: e.selector } }), parts: [] };
-    line.parts.push(`${e.property === 'size' ? `size ${e.before} → ${e.after}` : e.text}${e.where === row.where ? '' : ` (${e.where})`}`);
+    const line = byElement.get(key) ?? { ...(own ? {} : { element: { name: e.name, selector: e.selector } }), parts: [], scoped: false };
+    const [label, value] = e.property === 'position' ? ['moved', e.text.replace(/^moved /, '')] : e.property === 'size' ? ['size', `${e.before} → ${e.after}`] : [e.property, e.text.replace(new RegExp(`^${e.property} `), '')];
+    // Variants that differ from the cause's go right after the property they belong to.
+    const scoped = e.where !== row.where;
+    line.parts.push(scoped ? `${label} on ${e.where}: ${value}` : `${label} ${value}`);
+    line.scoped ||= scoped;
     byElement.set(key, line);
   }
-  const lines = [...byElement.values()].map((l) => ({ ...(l.element ? { element: l.element } : {}), text: l.parts.join(', ') }));
+  const lines = [...byElement.values()].map((l) => ({ ...(l.element ? { element: l.element } : {}), text: l.parts.join(l.scoped ? '; ' : ', ') }));
   if (lines.length) lines[0].text += ` (from the ${row.property === 'added' || row.property === 'removed' ? `${row.property} element` : `${row.property} change`})`;
   return lines;
 }

@@ -15,10 +15,10 @@
   - size 134.5×40px → 142.5×44px (from the padding change)
   <details><summary>10 effects on other elements</summary>
 
-  - `div.hero-actions`: size 992×40px → 992×44px (desktop · light, dark), size 342×40px → 342×44px (mobile · light, dark)
-  - `main.container`: size 1040×1452px → 1040×1456px (desktop · light, dark), size 390×1747.5px → 390×1751.5px (mobile · light, dark)
-  - `section.hero`: size 992×679px → 992×683px (desktop · light, dark), size 342×488.5px → 342×492.5px (mobile · light, dark)
-  - `div.hero-copy`: size 992×195px → 992×199px (desktop · light, dark), size 342×221px → 342×225px (mobile · light, dark)
+  - `div.hero-actions`: size on desktop · light, dark: 992×40px → 992×44px; size on mobile · light, dark: 342×40px → 342×44px
+  - `main.container`: size on desktop · light, dark: 1040×1452px → 1040×1456px; size on mobile · light, dark: 390×1747.5px → 390×1751.5px
+  - `section.hero`: size on desktop · light, dark: 992×679px → 992×683px; size on mobile · light, dark: 342×488.5px → 342×492.5px
+  - `div.hero-copy`: size on desktop · light, dark: 992×195px → 992×199px; size on mobile · light, dark: 342×221px → 342×225px
   - `link 'See how it works'` (`a.secondary`): moved 9px right, 2px down
   - `img.hero-art`: moved 4px down
   - `#features`: moved 4px down

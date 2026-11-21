@@ -4,7 +4,7 @@ import { checkSummary } from '../../src/check.js';
 import type { ElementChange, PropertyChange } from '../../src/elements.js';
 import { renderComment } from '../../src/markdown.js';
 import { computeStats, type CaptureResult, type Report } from '../../src/report.js';
-import { measuredGroups, measurements, variantsLabel, verdict } from '../../src/verdict.js';
+import { effectLines, measuredGroups, measurements, variantsLabel, verdict, type MeasuredRow } from '../../src/verdict.js';
 import { sampleReport } from './fixtures.js';
 
 const prop = (property: string, before: string, after: string): PropertyChange => ({ property, group: 'box', before, after });
@@ -73,5 +73,46 @@ describe('measured changes grouped by element, property and value', () => {
     const report = { viewports: ['desktop', 'mobile'], themes: ['light', 'dark'] };
     assert.equal(variantsLabel([{ viewport: 'desktop', theme: 'dark' }, { viewport: 'mobile', theme: 'light' }], report), 'desktop/dark, mobile/light');
     assert.equal(variantsLabel([{ viewport: 'mobile', theme: 'light' }], { viewports: ['desktop', 'mobile'], themes: ['light'] }), 'mobile');
+  });
+});
+
+describe('effect lines', () => {
+  const row = (effects: Array<Partial<MeasuredRow> & { property: string; where: string }>): MeasuredRow => ({
+    id: 'm1',
+    kind: 'cause',
+    name: "link 'Start free trial'",
+    selector: 'a.cta',
+    property: 'padding',
+    before: '8px 14px',
+    after: '12px 18px',
+    text: 'padding 8px 14px → 12px 18px',
+    magnitude: 8,
+    variants: [],
+    where: 'desktop, mobile · light, dark',
+    effects: effects.map((e, i) => ({ id: `m${i + 2}`, kind: 'effect', cause: 'm1', name: "link 'Start free trial'", selector: 'a.cta', text: e.property === 'position' ? (e.after ?? '') : '', magnitude: 1, variants: [], effects: [], ...e })),
+  });
+
+  it('puts the variants right after the property they belong to', () => {
+    const [line] = effectLines(row([
+      { property: 'size', before: '109.5×40px', after: '117.5×48px', where: 'desktop, mobile · light, dark' },
+      { property: 'position', after: 'moved 8px up', where: 'desktop · light, dark' },
+    ]));
+    assert.equal(line.text, 'size 109.5×40px → 117.5×48px; moved on desktop · light, dark: 8px up (from the padding change)');
+  });
+
+  it('names the variants of each value when a size differs by viewport', () => {
+    const [line] = effectLines(row([
+      { property: 'size', before: '992×40px', after: '992×44px', where: 'desktop · light, dark' },
+      { property: 'size', before: '342×40px', after: '342×44px', where: 'mobile · light, dark' },
+    ]));
+    assert.equal(line.text, 'size on desktop · light, dark: 992×40px → 992×44px; size on mobile · light, dark: 342×40px → 342×44px (from the padding change)');
+  });
+
+  it('stays short when every effect has the variants of its cause', () => {
+    const [line] = effectLines(row([
+      { property: 'size', before: '109.5×40px', after: '117.5×48px', where: 'desktop, mobile · light, dark' },
+      { property: 'position', after: 'moved 4px left', where: 'desktop, mobile · light, dark' },
+    ]));
+    assert.equal(line.text, 'size 109.5×40px → 117.5×48px, moved 4px left (from the padding change)');
   });
 });
