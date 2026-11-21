@@ -354,3 +354,63 @@ export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: El
   subtree(base.elements, match.removed, 'removed');
   return out.sort((a, b) => b.magnitude - a.magnitude);
 }
+
+/** A changed pixel area, explained by the element map. */
+export interface RegionExplanation {
+  /** The changed area in device px (head screenshot), as in the capture's diff regions. */
+  region: Box;
+  /** The smallest head element that contains the whole area; absent when none does. */
+  element?: { name: string; selector: string };
+  /** Indices into the capture's element changes that touch the area, biggest first. */
+  changes: number[];
+  /** Plain words when no measured change touches the area. */
+  note?: string;
+}
+
+const MEDIA = new Set(['img', 'picture', 'video', 'canvas', 'svg', 'iframe', 'object', 'embed']);
+
+function deviceBoxOf(e: StyledElement, scale: number): Box {
+  return e.deviceBox ?? { x: e.box.x * scale, y: e.box.y * scale, width: e.box.width * scale, height: e.box.height * scale };
+}
+
+function containsBox(outer: Box, inner: Box, tolerance: number): boolean {
+  return outer.x <= inner.x + tolerance && outer.y <= inner.y + tolerance && outer.x + outer.width >= inner.x + inner.width - tolerance && outer.y + outer.height >= inner.y + inner.height - tolerance;
+}
+
+function overlaps(a: Box, b: Box): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+/**
+ * Names each changed pixel area after the smallest element containing it and lists the measured
+ * changes inside it. Areas without a measured change say what they can ("image content changed")
+ * or that pixels changed without one; areas no element contains say that instead of guessing.
+ */
+export function explainRegions(regions: Box[], scale: number, head: StyleSnapshot, base: StyleSnapshot, changes: ElementChange[]): RegionExplanation[] {
+  // Diff regions snap to an 8 px grid (times the scale), so they can stick out of an element by almost a cell.
+  const tolerance = 8 * scale;
+  return regions.map((region) => {
+    let container: StyledElement | undefined;
+    for (const e of head.elements) {
+      const box = deviceBoxOf(e, scale);
+      if (!containsBox(box, region, tolerance)) continue;
+      if (!container || box.width * box.height < deviceBoxOf(container, scale).width * deviceBoxOf(container, scale).height) container = e;
+    }
+    const inside = changes
+      .map((c, i) => ({ c, i }))
+      .filter(({ c }) => {
+        const list = c.kind === 'removed' ? base.elements : head.elements;
+        const e = list[(c.kind === 'removed' ? c.base : c.head)!];
+        return e !== undefined && overlaps(deviceBoxOf(e, scale), region);
+      })
+      .map(({ i }) => i);
+    const explanation: RegionExplanation = { region, ...(container ? { element: { name: container.name ?? container.selector, selector: container.selector } } : {}), changes: inside };
+    if (inside.length === 0) {
+      const media = head.elements.find((e) => e.tag && MEDIA.has(e.tag) && overlaps(deviceBoxOf(e, scale), region));
+      if (!container) explanation.note = 'no element covers this area, so it is not named';
+      else if (media) explanation.note = `image content changed (${media.name ?? media.selector})`;
+      else explanation.note = 'pixels changed, but no measured style, text or size change explains it';
+    }
+    return explanation;
+  });
+}
