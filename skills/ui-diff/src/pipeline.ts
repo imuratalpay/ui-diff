@@ -12,7 +12,7 @@ import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
 import { distinctFrames, encodeSideBySideGif, motionWarning, moveFile, recordFrames, writeFile, type RawFrame } from './motion.js';
 import { realpathIfExists } from './paths.js';
-import { autoSummary, computeStats, pct, truncationWarning, type CaptureResult, type MotionResult, type Report, type SideSummary, type VariantGroup } from './report.js';
+import { autoSummary, computeStats, notCheckedReason, pct, truncationWarning, type CaptureResult, type MotionResult, type Report, type SideSummary, type VariantGroup } from './report.js';
 import { killAllServers, serverLogWarnings } from './server.js';
 import { SideManager, type Side, type SideRequest } from './sides.js';
 import { describeStep, runSteps } from './steps.js';
@@ -263,9 +263,10 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       captures: [],
       variants: [],
       motion: [],
-      warnings: [...warnings, 'No UI changes detected that map to a route.'],
+      warnings,
       stats: computeStats([]),
     };
+    report.notChecked = notCheckedReason(report);
     return writeOutputs(report, outDir, true);
   }
 

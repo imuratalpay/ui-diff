@@ -115,6 +115,8 @@ export interface Report {
   motionSkipped?: string[];
   tokens?: TokenReport;
   a11y?: A11yReport;
+  /** Set when nothing was captured: why (see `notCheckedReason`). */
+  notChecked?: string;
   warnings: string[];
   stats: { captures: number; changed: number; unchanged: number; added: number; removed: number; errors: number };
 }
@@ -181,13 +183,34 @@ export function truncationWarning(captures: CaptureResult[], maxHeight: number):
   return `${cut.length} capture${cut.length === 1 ? ' was' : 's were'} cut at capture.maxHeight (${maxHeight}px): ${names}${more}. Changes below that line are not compared; raise capture.maxHeight to include them.`;
 }
 
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+/** Why nothing was captured, when nothing was. Phrased so an empty run never reads as "no visual changes". */
+export function notCheckedReason(report: Report): string | undefined {
+  if (report.captures.length > 0) return undefined;
+  const d = report.detect;
+  if (!d) return 'no route was selected';
+  if (d.uiFiles.length === 0) return 'no changed file is a UI file (detect.include), so no route was captured';
+  const why: string[] = [];
+  if (d.unmatched.length) why.push(`${plural(d.unmatched.length, 'file')} could not be traced to a page (pass --routes, or map them with routes[].files)`);
+  if (d.needsExample.length) why.push(`dynamic routes need an example path: ${[...new Set(d.needsExample.map((n) => n.route))].join(', ')}`);
+  return `${plural(d.uiFiles.length, 'UI file')} changed but none could be mapped to a route${why.length ? `: ${why.join('; ')}` : ''}`;
+}
+
+export function notCheckedNotice(reason: string): string {
+  return `**Nothing was checked.** ${reason[0].toUpperCase()}${reason.slice(1)}. This is not a visual all-clear.`;
+}
+
 /** Data-driven summary used when no agent/human summary is supplied. */
 export function autoSummary(report: Report): string {
   const lines: string[] = [];
   const s = report.stats;
   const changed = report.captures.filter((c) => c.status === 'changed' || c.status === 'added' || c.status === 'removed');
-  if (s.captures === 0) {
-    lines.push('No routes were captured.');
+  const notChecked = notCheckedReason(report);
+  if (notChecked) {
+    lines.push(notCheckedNotice(notChecked));
   } else if (changed.length === 0 && s.errors === 0) {
     lines.push(`No visual changes across ${s.captures} capture${s.captures === 1 ? '' : 's'} (${report.routes.length} route${report.routes.length === 1 ? '' : 's'}).`);
   } else {

@@ -64,7 +64,9 @@ The JSON lists each route with `reasons` and `confidence`, plus:
 - `needsExample`: dynamic routes (`/blog/[slug]`). Find a real id and pass `--routes /blog/hello`.
 - `notes`: e.g. routes beyond `detect.maxRoutes`.
 
-If no UI file changed, say so and stop; do not produce an empty report. Tell the user in one or
+If no UI file changed, say so and stop; do not produce an empty report. If UI files changed but
+none maps to a route (`run` prints `"status": "nothing-mapped"` and a `notChecked` reason), nothing
+was checked: resolve the routes yourself or tell the user; never report that as "no visual changes". Tell the user in one or
 two lines which routes you will capture and why. Remember routes that are affected but not
 captured (login walls, modals, limits): they go in the summary so "no change" is not read as
 an all-clear.

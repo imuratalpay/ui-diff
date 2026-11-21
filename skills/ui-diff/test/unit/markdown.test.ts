@@ -71,7 +71,7 @@ describe('comment rendering', () => {
     assert.equal(pct(0.00001), '<0.01%');
     assert.equal(pct(0.1234), '12.3%');
     assert.equal(compressWhere(['/ desktop/light', '/ mobile/light', '/about desktop/light'], new Map([['/', 2], ['/about', 2]])), '`/` (all 2); `/about` desktop/light');
-    assert.match(autoSummary(sampleReport({ captures: [], stats: computeStats([]) })), /No routes were captured/);
+    assert.match(autoSummary(sampleReport({ captures: [], stats: computeStats([]) })), /Nothing was checked/);
   });
 });
 

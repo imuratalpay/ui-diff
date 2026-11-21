@@ -1,5 +1,5 @@
 import { categorize } from './a11y.js';
-import { autoSummary, captureLabel, describeCapture, type CaptureResult, type Report } from './report.js';
+import { autoSummary, captureLabel, describeCapture, notCheckedNotice, notCheckedReason, type CaptureResult, type Report } from './report.js';
 
 export const MAX_COMMENT_LENGTH = 65000;
 
@@ -102,9 +102,55 @@ function changedSection(report: Report, captures: CaptureResult[], opts: RenderO
     } else if (c.images.head) {
       out.push(img(opts.link(c.images.head), `${captureLabel(c, themes)} (head)`, 480), '');
     }
-    for (const w of c.warnings.slice(0, 3)) out.push(`> ${w}`, '');
+    for (const w of c.warnings.slice(0, INLINE_WARNINGS)) out.push(`> ${w}`, '');
   }
   return out;
+}
+
+const INLINE_WARNINGS = 3;
+/** Truncation has its own "Partial captures" notice. */
+const TRUNCATION_WARNING = /taller than capture\.maxHeight|cut at capture\.maxHeight/;
+
+function isShownChange(c: CaptureResult): boolean {
+  return c.status === 'changed' || c.status === 'added' || c.status === 'removed';
+}
+
+/**
+ * Every warning not already printed next to a changed capture: report-level ones (dev server,
+ * detection notes) and those of unchanged or failed captures, grouped by capture.
+ */
+function warningsSection(report: Report, opts: RenderOptions): string[] {
+  const groups: Array<{ label?: string; items: string[] }> = [];
+  const general = report.warnings.filter((w) => !TRUNCATION_WARNING.test(w));
+  if (general.length) groups.push({ items: general });
+  for (const c of report.captures) {
+    const items = c.warnings.filter((w) => !TRUNCATION_WARNING.test(w)).slice(isShownChange(c) ? INLINE_WARNINGS : 0);
+    if (items.length) groups.push({ label: captureLabel(c, report.themes.length), items });
+  }
+  const total = groups.reduce((n, g) => n + g.items.length, 0);
+  if (total === 0) return [];
+  const limit = (opts.compact ?? 0) >= 2 ? 10 : 60;
+  const lines: string[] = [];
+  let shown = 0;
+  for (const g of groups) {
+    const items = g.items.slice(0, Math.max(0, limit - shown));
+    shown += items.length;
+    if (items.length === 0) break;
+    if (!g.label) for (const w of items) lines.push(`- ${escapeText(w)}`);
+    else if (items.length === 1) lines.push(`- ${code(g.label)}: ${escapeText(items[0])}`);
+    else lines.push(`- ${code(g.label)}:`, ...items.map((w) => `  - ${escapeText(w)}`));
+  }
+  if (total > shown) lines.push(`- …and ${total - shown} more in \`report.json\``);
+  if (total > 5) return [`<details><summary>Warnings (${total})</summary>`, '', ...lines, '', '</details>', ''];
+  return ['#### Warnings', '', ...lines, ''];
+}
+
+function unmatchedSection(report: Report): string[] {
+  const files = report.detect?.unmatched ?? [];
+  if (files.length === 0) return [];
+  const label = 'Changed UI files that match no route (not captured)';
+  if (files.length <= 8) return [`${label}: ${files.map(code).join(', ')}`, ''];
+  return [`<details><summary>${label}: ${files.length}</summary>`, '', ...files.slice(0, 100).map((f) => `- ${code(f)}`), files.length > 100 ? `- …and ${files.length - 100} more` : '', '</details>', ''];
 }
 
 function variantSection(report: Report, opts: RenderOptions): string[] {
@@ -236,17 +282,20 @@ function renderOnce(report: Report, opts: RenderOptions): string {
   const compact = opts.compact ?? 0;
   const s = report.stats;
   const out: string[] = [stickyMarker(opts.id)];
-  const counts = [s.changed && `${s.changed} changed`, s.added && `${s.added} new`, s.removed && `${s.removed} removed`, s.errors && `${s.errors} failed`, `${s.unchanged} unchanged`]
-    .filter(Boolean)
-    .join(', ');
+  const notChecked = notCheckedReason(report);
+  const counts = notChecked
+    ? 'nothing checked'
+    : [s.changed && `${s.changed} changed`, s.added && `${s.added} new`, s.removed && `${s.removed} removed`, s.errors && `${s.errors} failed`, `${s.unchanged} unchanged`].filter(Boolean).join(', ');
   out.push(`### ${opts.title} — ${counts}`, '');
   out.push(
     `**Base** ${code(sideLabel(report.base))} → **Head** ${code(sideLabel(report.head))} · ${report.routes.length} route${report.routes.length === 1 ? '' : 's'} · ${report.viewports.join(', ')} · ${report.themes.join(', ')}`,
     '',
   );
-  out.push('#### Summary', '', (opts.summary?.trim() || autoSummary(report)).trim(), '');
+  const summary = opts.summary?.trim();
+  if (notChecked) out.push(`> ${notCheckedNotice(notChecked)}`, '');
+  if (summary || !notChecked) out.push('#### Summary', '', (summary || autoSummary(report)).trim(), '');
 
-  const changed = report.captures.filter((c) => c.status === 'changed' || c.status === 'added' || c.status === 'removed');
+  const changed = report.captures.filter(isShownChange);
   const failed = report.captures.filter((c) => c.status === 'error');
   const unchanged = report.captures.filter((c) => c.status === 'unchanged');
   if (changed.length) out.push('#### Changes', '', ...changedSection(report, changed, opts));
@@ -261,6 +310,7 @@ function renderOnce(report: Report, opts: RenderOptions): string {
     out.push(`<details><summary>Unchanged (${unchanged.length})</summary>`, '', ...list, '', '</details>', '');
   }
   out.push(...variantSection(report, opts), ...motionSection(report, opts), ...a11ySection(report, opts), ...tokenSection(report, opts));
+  out.push(...warningsSection(report, opts), ...unmatchedSection(report));
   const notCaptured = [...(report.detect?.skippedRoutes ?? []), ...(report.detect?.needsExample ?? []).map((n) => n.route)];
   if (notCaptured.length) out.push(`<sub>Affected but not captured: ${notCaptured.map(code).join(', ')}</sub>`, '');
   const cut = report.captures.filter((c) => c.truncated);
