@@ -350,6 +350,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
         const record = await session.capture(target);
         if (!record.ok) log.warn(`${side.name} ${plan.id}: ${record.error}`);
         else if (!record.stable || record.unsettled) log.warn(unsettledWarning(`${side.name} ${plan.id}`, record));
+        for (const action of record.skippedActions ?? []) log.warn(`${plan.id}: ${skippedActionWarning(side.name, action)}`);
         records.set(`${side.name}:${plan.id}`, record);
       }
     }
@@ -372,6 +373,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       const b = records.get(`base:${c.id}`);
       const h = records.get(`head:${c.id}`);
       for (const [label, r] of [['base', b], ['head', h]] as const) {
+        for (const action of r?.skippedActions ?? []) c.warnings.push(skippedActionWarning(label, action));
         if (r?.pageErrors.length) c.warnings.push(`${label}: uncaught page error: ${r.pageErrors[0]}`);
         if (r && r.ok && (!r.stable || r.unsettled)) c.warnings.push(unsettledWarning(label, r));
       }
@@ -404,6 +406,10 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
     await browser?.close().catch(() => undefined);
     await sides.cleanup();
   }
+}
+
+export function skippedActionWarning(side: string, action: string): string {
+  return `${side}: route action "${action}" skipped: no element matches it on ${side}`;
 }
 
 /** Comparing two error pages says nothing about the UI, so HTTP errors fail the capture. */

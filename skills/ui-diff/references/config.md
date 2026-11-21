@@ -75,7 +75,7 @@ them). Each server runs in its own process group; only those processes are stopp
 | `name` | Used in file names and labels (defaults from the path). |
 | `files` | Globs whose changes affect this route. Files matching them also count as entry points for the import graph. |
 | `waitFor` | Selector that must be visible before capturing. |
-| `actions` | Steps run before the static screenshot (same format as motion steps), e.g. open a menu. |
+| `actions` | Steps run before the static screenshot (same format as motion steps), e.g. open a menu. They run after the page settled (network idle, fonts, the lazy-load scroll), so they can target lazy-loaded elements. A step whose element does not appear within 3 s on one side (a control that is new on head) is skipped there and reported as a warning. |
 | `mask` / `hide` | Per-route additions to `capture.mask` / `capture.hide`. |
 | `fullPage` | Override `capture.fullPage`. |
 | `viewports` / `themes` | Restrict this route to some viewports/themes. |

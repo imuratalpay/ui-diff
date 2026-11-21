@@ -27,15 +27,30 @@ export interface StepOptions {
   timeoutMs?: number;
   /** Skip steps whose element does not exist (e.g. a control that is new on head) instead of failing. */
   skipMissing?: boolean;
+  /** With skipMissing: how long a missing element may take to appear (e.g. after a previous click) before its step is skipped. */
+  waitForMissingMs?: number;
+}
+
+async function isPresent(page: Page, selector: string, waitMs: number): Promise<boolean> {
+  const locator = page.locator(selector);
+  if ((await locator.count()) > 0) return true;
+  if (waitMs <= 0) return false;
+  return locator
+    .first()
+    .waitFor({ state: 'attached', timeout: waitMs })
+    .then(
+      () => true,
+      () => false,
+    );
 }
 
 /** Runs interaction steps; returns the descriptions of skipped steps. */
 export async function runSteps(page: Page, steps: Step[], opts: StepOptions | number = {}): Promise<string[]> {
-  const { timeoutMs = 10000, skipMissing = false } = typeof opts === 'number' ? { timeoutMs: opts } : opts;
+  const { timeoutMs = 10000, skipMissing = false, waitForMissingMs = 0 } = typeof opts === 'number' ? { timeoutMs: opts } : opts;
   const skipped: string[] = [];
   for (const step of steps) {
     const selector = selectorOf(step);
-    if (skipMissing && selector && (await page.locator(selector).count()) === 0) {
+    if (skipMissing && selector && !(await isPresent(page, selector, waitForMissingMs))) {
       skipped.push(describeStep(step));
       continue;
     }

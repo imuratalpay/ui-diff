@@ -48,6 +48,8 @@ export interface CaptureRecord {
   stylesFile?: string;
   axe?: AxeViolation[];
   focusOrder?: FocusStop[];
+  /** Route actions skipped because no element matched them on this side. */
+  skippedActions?: string[];
   /** `window.devicePixelRatio` measured in the page: device pixels per CSS pixel in the screenshot. */
   scale?: number;
   durationMs: number;
@@ -122,6 +124,9 @@ async function describeRegions(page: Page, boxes: Box[], fullPage: boolean): Pro
       return [];
     });
 }
+
+/** How long a route action waits for its element to appear before it is skipped as missing on that side. */
+const MISSING_ACTION_WAIT_MS = 3000;
 
 const MOBILE_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
@@ -225,8 +230,12 @@ export class CaptureSession {
     return context;
   }
 
-  /** Navigates and brings the page to a settled, deterministic state. */
-  async openAndSettle(page: Page, url: string, route: ResolvedRoute, opts: { freeze: boolean; fullPage: boolean }): Promise<number | undefined> {
+  /**
+   * Navigates and brings the page to a settled, deterministic state: network idle, fonts, lazy
+   * content loaded by scrolling through the page, and only then the route's actions, so they can
+   * target lazy-loaded elements and an opened menu or hover is not undone by that scroll.
+   */
+  async openAndSettle(page: Page, url: string, route: ResolvedRoute, opts: { freeze: boolean; fullPage: boolean }): Promise<{ status?: number; skippedActions: string[] }> {
     const { cfg } = this.opts;
     const response = await page.goto(url, { waitUntil: cfg.capture.waitUntil, timeout: cfg.capture.timeoutMs });
     if (cfg.capture.networkIdleTimeoutMs > 0) {
@@ -235,15 +244,20 @@ export class CaptureSession {
     if (route.waitFor) await page.locator(route.waitFor).first().waitFor({ state: 'visible', timeout: cfg.capture.timeoutMs });
     if (opts.freeze) await freezeAnimations(page);
     if (cfg.capture.waitForFonts) await waitForFontsAndImages(page, 8000);
-    if (route.actions.length) await runSteps(page, route.actions, cfg.capture.timeoutMs);
     if (opts.fullPage && cfg.capture.scrollToLoad) {
       await scrollThrough(page, cfg.capture.maxHeight);
       if (cfg.capture.waitForFonts) await waitForFontsAndImages(page, 5000);
     }
+    let skippedActions: string[] = [];
+    if (route.actions.length) {
+      await page.evaluate(() => window.scrollTo(0, 0));
+      // An element that exists on only one side (new on head, removed on base) skips the action there with a warning.
+      skippedActions = await runSteps(page, route.actions, { timeoutMs: cfg.capture.timeoutMs, skipMissing: true, waitForMissingMs: Math.min(cfg.capture.timeoutMs, MISSING_ACTION_WAIT_MS) });
+    }
     if (opts.freeze) await freezeAnimations(page);
     if (!route.actions.some((a) => 'scroll' in a)) await page.evaluate(() => window.scrollTo(0, 0));
     if (cfg.capture.settleMs) await page.waitForTimeout(cfg.capture.settleMs);
-    return response?.status();
+    return { status: response?.status(), skippedActions };
   }
 
   async screenshot(
@@ -324,7 +338,9 @@ export class CaptureSession {
       page.on('pageerror', (error) => {
         if (record.pageErrors.length < 10) record.pageErrors.push(redact(error.message).slice(0, 300));
       });
-      record.httpStatus = await this.openAndSettle(page, target.url, target.route, { freeze: cfg.capture.disableAnimations, fullPage });
+      const opened = await this.openAndSettle(page, target.url, target.route, { freeze: cfg.capture.disableAnimations, fullPage });
+      record.httpStatus = opened.status;
+      if (opened.skippedActions.length) record.skippedActions = opened.skippedActions;
       record.scale = await page.evaluate(() => window.devicePixelRatio);
       const shot = await this.screenshot(page, target.route, fullPage);
       mkdirSync(path.dirname(target.file), { recursive: true });
