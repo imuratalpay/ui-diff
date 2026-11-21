@@ -12,6 +12,19 @@ describe('package metadata', () => {
     assert.equal(VERSION, JSON.parse(read('package.json')).version);
   });
 
+  it('has a CHANGELOG entry for this version, and the lockfile says the same version', () => {
+    assert.match(read('../../CHANGELOG.md'), new RegExp(`^## ${VERSION.replace(/\./g, '\\.')}$`, 'm'));
+    const lock = JSON.parse(read('package-lock.json'));
+    assert.deepEqual([lock.version, lock.packages[''].version], [VERSION, VERSION]);
+  });
+
+  it('ships what npx needs to run without a build step', () => {
+    const pkg = JSON.parse(read('package.json'));
+    assert.ok(pkg.files.includes('dist') && pkg.files.includes('tsconfig.json'), 'the build and what rebuilds it');
+    assert.equal(pkg.scripts.prepare, undefined, 'no build on install: a linked folder has no compiler yet');
+    assert.equal(pkg.scripts.prepack, 'tsc -p tsconfig.json');
+  });
+
   it('keeps the committed JSON schema up to date (run `npm run schema`)', () => {
     assert.deepEqual(JSON.parse(read('schema/ui-diff.config.schema.json')), configJsonSchema());
   });

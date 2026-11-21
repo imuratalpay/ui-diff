@@ -1,0 +1,1652 @@
+{
+  "version": 3,
+  "tool": {
+    "name": "ui-diff",
+    "version": "2.0.0"
+  },
+  "createdAt": "2026-11-21T17:25:48.744Z",
+  "routes": [
+    {
+      "path": "/",
+      "name": "home",
+      "reasons": [
+        "examples/sample-site/home.css matches examples/sample-site/home.css"
+      ],
+      "confidence": "high"
+    }
+  ],
+  "detect": {
+    "uiFiles": [
+      "docs/example/compare/home__desktop__dark.png",
+      "docs/example/compare/home__desktop__light.png",
+      "docs/example/compare/home__desktop__light__focus-1.png",
+      "docs/example/compare/home__desktop__light__focus-2.png",
+      "docs/example/compare/home__mobile__dark.png",
+      "docs/example/compare/home__mobile__light.png",
+      "docs/example/motion/home__desktop__light.gif",
+      "docs/example/variants/home__desktop__light__hero-1.png",
+      "docs/example/variants/home__desktop__light__hero-2.png",
+      "docs/example/variants/home__desktop__light__hero-3.png",
+      "docs/example/variants/home__desktop__light__hero-4.png",
+      "docs/example/variants/home__desktop__light__hero__strip.png",
+      "examples/sample-site/home.css",
+      "skills/ui-diff/schema/ui-diff.config.schema.json",
+      "skills/ui-diff/src/align.ts",
+      "skills/ui-diff/src/capture.ts",
+      "skills/ui-diff/src/cli.ts",
+      "skills/ui-diff/src/config.ts",
+      "skills/ui-diff/src/conventions.ts",
+      "skills/ui-diff/src/detect.ts",
+      "skills/ui-diff/src/diff.ts",
+      "skills/ui-diff/src/github.ts",
+      "skills/ui-diff/src/imports.ts",
+      "skills/ui-diff/src/log.ts",
+      "skills/ui-diff/src/markdown.ts",
+      "skills/ui-diff/src/motion.ts",
+      "skills/ui-diff/src/paths.ts",
+      "skills/ui-diff/src/pipeline.ts",
+      "skills/ui-diff/src/publish.ts",
+      "skills/ui-diff/src/report.ts",
+      "skills/ui-diff/src/server.ts",
+      "skills/ui-diff/src/sides.ts",
+      "skills/ui-diff/src/stylex.ts",
+      "skills/ui-diff/src/tokens.ts",
+      "skills/ui-diff/src/unsettled.ts"
+    ],
+    "unmatched": [
+      "docs/example/compare/home__desktop__dark.png",
+      "docs/example/compare/home__desktop__light.png",
+      "docs/example/compare/home__desktop__light__focus-1.png",
+      "docs/example/compare/home__desktop__light__focus-2.png",
+      "docs/example/compare/home__mobile__dark.png",
+      "docs/example/compare/home__mobile__light.png",
+      "docs/example/motion/home__desktop__light.gif",
+      "docs/example/variants/home__desktop__light__hero-1.png",
+      "docs/example/variants/home__desktop__light__hero-2.png",
+      "docs/example/variants/home__desktop__light__hero-3.png",
+      "docs/example/variants/home__desktop__light__hero-4.png",
+      "docs/example/variants/home__desktop__light__hero__strip.png",
+      "skills/ui-diff/schema/ui-diff.config.schema.json",
+      "skills/ui-diff/src/align.ts",
+      "skills/ui-diff/src/capture.ts",
+      "skills/ui-diff/src/cli.ts",
+      "skills/ui-diff/src/config.ts",
+      "skills/ui-diff/src/conventions.ts",
+      "skills/ui-diff/src/detect.ts",
+      "skills/ui-diff/src/diff.ts",
+      "skills/ui-diff/src/github.ts",
+      "skills/ui-diff/src/imports.ts",
+      "skills/ui-diff/src/log.ts",
+      "skills/ui-diff/src/markdown.ts",
+      "skills/ui-diff/src/motion.ts",
+      "skills/ui-diff/src/paths.ts",
+      "skills/ui-diff/src/pipeline.ts",
+      "skills/ui-diff/src/publish.ts",
+      "skills/ui-diff/src/report.ts",
+      "skills/ui-diff/src/server.ts",
+      "skills/ui-diff/src/sides.ts",
+      "skills/ui-diff/src/stylex.ts",
+      "skills/ui-diff/src/tokens.ts",
+      "skills/ui-diff/src/unsettled.ts"
+    ],
+    "skippedRoutes": [],
+    "needsExample": [],
+    "notes": []
+  },
+  "viewports": [
+    "desktop",
+    "mobile"
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "base": {
+    "label": "6737326",
+    "mode": "worktree",
+    "sha": "6737326b2e051665eb7b14a33d39acee32ff22de",
+    "shortSha": "6737326",
+    "ref": "6737326b2e051665eb7b14a33d39acee32ff22de",
+    "includesUncommitted": false
+  },
+  "head": {
+    "label": "cc13cab",
+    "mode": "worktree",
+    "sha": "cc13cab81ca4c056ebe8ed861cce6747f2495e59",
+    "shortSha": "cc13cab",
+    "ref": "cc13cab",
+    "includesUncommitted": false
+  },
+  "captures": [
+    {
+      "id": "home__desktop__light",
+      "route": {
+        "path": "/",
+        "name": "home",
+        "slug": "home"
+      },
+      "viewport": "desktop",
+      "theme": "light",
+      "status": "changed",
+      "urls": {},
+      "images": {
+        "focus": [
+          "compare/home__desktop__light__focus-1.png",
+          "compare/home__desktop__light__focus-2.png"
+        ],
+        "base": "captures/base/home__desktop__light.png",
+        "head": "captures/head/home__desktop__light.png",
+        "diff": "diff/home__desktop__light.png",
+        "compare": "compare/home__desktop__light.png",
+        "pairs": [
+          "compare/home__desktop__light__pair-1.png",
+          "compare/home__desktop__light__pair-2.png"
+        ],
+        "blinks": [
+          "compare/home__desktop__light__blink-1.gif",
+          "compare/home__desktop__light__blink-2.gif"
+        ]
+      },
+      "warnings": [],
+      "truncated": false,
+      "fingerprint": {
+        "base": {
+          "commit": "6737326b2e051665eb7b14a33d39acee32ff22de",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "deviceScaleFactor": 1,
+            "isMobile": false
+          },
+          "browser": {
+            "name": "chromium",
+            "version": "159.0.8154.6",
+            "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36"
+          },
+          "fonts": {
+            "loaded": [],
+            "failed": [],
+            "pending": []
+          },
+          "freeze": {
+            "clock": "2026-01-15T09:30:00.000Z",
+            "seed": 795556381,
+            "animations": true,
+            "fonts": true
+          },
+          "media": {
+            "reducedMotion": "reduce",
+            "colorScheme": "light",
+            "locale": "en-US",
+            "timezone": "UTC"
+          },
+          "data": "not declared",
+          "cache": {
+            "hit": false,
+            "key": "base-6737326b2e05-19cef14daae165b3"
+          }
+        },
+        "head": {
+          "commit": "cc13cab81ca4c056ebe8ed861cce6747f2495e59",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "deviceScaleFactor": 1,
+            "isMobile": false
+          },
+          "browser": {
+            "name": "chromium",
+            "version": "159.0.8154.6",
+            "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36"
+          },
+          "fonts": {
+            "loaded": [],
+            "failed": [],
+            "pending": []
+          },
+          "freeze": {
+            "clock": "2026-01-15T09:30:00.000Z",
+            "seed": 795556381,
+            "animations": true,
+            "fonts": true
+          },
+          "media": {
+            "reducedMotion": "reduce",
+            "colorScheme": "light",
+            "locale": "en-US",
+            "timezone": "UTC"
+          },
+          "data": "not declared"
+        },
+        "differences": []
+      },
+      "diff": {
+        "changedPixels": 7010,
+        "ratio": 0.0034079418170504046,
+        "regions": [
+          {
+            "x": 0,
+            "y": 280,
+            "width": 1280,
+            "height": 48
+          },
+          {
+            "x": 144,
+            "y": 1408,
+            "width": 80,
+            "height": 16
+          }
+        ],
+        "scale": 1,
+        "sizeBefore": [
+          1280,
+          1603
+        ],
+        "sizeAfter": [
+          1280,
+          1607
+        ],
+        "sizeChanged": true,
+        "shifted": [
+          {
+            "beforeY": 324,
+            "afterY": 328,
+            "height": 1279,
+            "dy": 4
+          }
+        ],
+        "focusBoxes": [
+          {
+            "x": 0,
+            "y": 194,
+            "width": 1280,
+            "height": 220
+          },
+          {
+            "x": 0,
+            "y": 1306,
+            "width": 420,
+            "height": 220
+          }
+        ]
+      },
+      "elementMap": {
+        "base": {
+          "elements": 52
+        },
+        "head": {
+          "elements": 52
+        }
+      },
+      "styleDiff": {
+        "matched": {
+          "high": 22,
+          "medium": 30,
+          "low": 0
+        },
+        "changes": [
+          {
+            "kind": "changed",
+            "name": "label 'Work email'",
+            "selector": "label",
+            "base": 41,
+            "head": 41,
+            "confidence": "medium",
+            "reason": "same text \"Work email\"",
+            "changes": [
+              {
+                "property": "color",
+                "group": "color",
+                "before": "#0f172a",
+                "after": "#2563eb"
+              }
+            ],
+            "box": {
+              "x": 144,
+              "y": 1405.796875,
+              "width": 274,
+              "height": 21
+            },
+            "deviceBox": {
+              "x": 144,
+              "y": 1406,
+              "width": 274,
+              "height": 21
+            },
+            "magnitude": 24.06183123277154,
+            "verified": true
+          },
+          {
+            "kind": "changed",
+            "name": "link 'Start free trial'",
+            "selector": "a.cta",
+            "base": 13,
+            "head": 13,
+            "confidence": "high",
+            "reason": "same link named \"Start free trial\"",
+            "changes": [
+              {
+                "property": "size",
+                "group": "box",
+                "before": "134.5×40px",
+                "after": "142.5×44px"
+              },
+              {
+                "property": "padding",
+                "group": "box",
+                "before": "8px 14px",
+                "after": "10px 18px"
+              },
+              {
+                "property": "border-radius",
+                "group": "shape",
+                "before": "4px",
+                "after": "8px"
+              }
+            ],
+            "box": {
+              "x": 144,
+              "y": 283.796875,
+              "width": 142.484375,
+              "height": 44
+            },
+            "deviceBox": {
+              "x": 144,
+              "y": 284,
+              "width": 142,
+              "height": 44
+            },
+            "magnitude": 20,
+            "verified": true
+          },
+          {
+            "kind": "changed",
+            "name": "div.hero-actions",
+            "selector": "div.hero-actions",
+            "base": 12,
+            "head": 12,
+            "confidence": "medium",
+            "reason": "same selector",
+            "changes": [
+              {
+                "property": "size",
+                "group": "box",
+                "before": "992×40px",
+                "after": "992×44px"
+              },
+              {
+                "property": "gap",
+                "group": "box",
+                "before": "16px",
+                "after": "17px"
+              }
+            ],
+            "box": {
+              "x": 144,
+              "y": 283.796875,
+              "width": 992,
+              "height": 44
+            },
+            "deviceBox": {
+              "x": 144,
+              "y": 284,
+              "width": 992,
+              "height": 44
+            },
+            "magnitude": 9,
+            "verified": true
+          }
+        ],
+        "regions": [
+          {
+            "region": {
+              "x": 0,
+              "y": 280,
+              "width": 1280,
+              "height": 48
+            },
+            "changes": [
+              1,
+              2
+            ]
+          },
+          {
+            "region": {
+              "x": 144,
+              "y": 1408,
+              "width": 80,
+              "height": 16
+            },
+            "element": {
+              "name": "label 'Work email'",
+              "selector": "label"
+            },
+            "changes": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "home__desktop__dark",
+      "route": {
+        "path": "/",
+        "name": "home",
+        "slug": "home"
+      },
+      "viewport": "desktop",
+      "theme": "dark",
+      "status": "changed",
+      "urls": {},
+      "images": {
+        "focus": [
+          "compare/home__desktop__dark__focus-1.png",
+          "compare/home__desktop__dark__focus-2.png"
+        ],
+        "base": "captures/base/home__desktop__dark.png",
+        "head": "captures/head/home__desktop__dark.png",
+        "diff": "diff/home__desktop__dark.png",
+        "compare": "compare/home__desktop__dark.png",
+        "pairs": [
+          "compare/home__desktop__dark__pair-1.png",
+          "compare/home__desktop__dark__pair-2.png"
+        ],
+        "blinks": [
+          "compare/home__desktop__dark__blink-1.gif",
+          "compare/home__desktop__dark__blink-2.gif"
+        ]
+      },
+      "warnings": [],
+      "truncated": false,
+      "fingerprint": {
+        "base": {
+          "commit": "6737326b2e051665eb7b14a33d39acee32ff22de",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "deviceScaleFactor": 1,
+            "isMobile": false
+          },
+          "browser": {
+            "name": "chromium",
+            "version": "159.0.8154.6",
+            "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36"
+          },
+          "fonts": {
+            "loaded": [],
+            "failed": [],
+            "pending": []
+          },
+          "freeze": {
+            "clock": "2026-01-15T09:30:00.000Z",
+            "seed": 795556381,
+            "animations": true,
+            "fonts": true
+          },
+          "media": {
+            "reducedMotion": "reduce",
+            "colorScheme": "dark",
+            "locale": "en-US",
+            "timezone": "UTC"
+          },
+          "data": "not declared",
+          "cache": {
+            "hit": false,
+            "key": "base-6737326b2e05-19cef14daae165b3"
+          }
+        },
+        "head": {
+          "commit": "cc13cab81ca4c056ebe8ed861cce6747f2495e59",
+          "viewport": {
+            "width": 1280,
+            "height": 800,
+            "deviceScaleFactor": 1,
+            "isMobile": false
+          },
+          "browser": {
+            "name": "chromium",
+            "version": "159.0.8154.6",
+            "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/159.0.8154.6 Safari/537.36"
+          },
+          "fonts": {
+            "loaded": [],
+            "failed": [],
+            "pending": []
+          },
+          "freeze": {
+            "clock": "2026-01-15T09:30:00.000Z",
+            "seed": 795556381,
+            "animations": true,
+            "fonts": true
+          },
+          "media": {
+            "reducedMotion": "reduce",
+            "colorScheme": "dark",
+            "locale": "en-US",
+            "timezone": "UTC"
+          },
+          "data": "not declared"
+        },
+        "differences": []
+      },
+      "diff": {
+        "changedPixels": 7009,
+        "ratio": 0.0034074556627255756,
+        "regions": [
+          {
+            "x": 0,
+            "y": 280,
+            "width": 1280,
+            "height": 48
+          },
+          {
+            "x": 144,
+            "y": 1408,
+            "width": 80,
+            "height": 16
+          }
+        ],
+        "scale": 1,
+        "sizeBefore": [
+          1280,
+          1603
+        ],
+        "sizeAfter": [
+          1280,
+          1607
+        ],
+        "sizeChanged": true,
+        "shifted": [
+          {
+            "beforeY": 324,
+            "afterY": 328,
+            "height": 1279,
+            "dy": 4
+          }
+        ],
+        "focusBoxes": [
+          {
+            "x": 0,
+            "y": 194,
+            "width": 1280,
+            "height": 220
+          },
+          {
+            "x": 0,
+            "y": 1306,
+            "width": 420,
+            "height": 220
+          }
+        ]
+      },
+      "elementMap": {
+        "base": {
+          "elements": 52
+        },
+        "head": {
+          "elements": 52
+        }
+      },
+      "styleDiff": {
+        "matched": {
+          "high": 22,
+          "medium": 30,
+          "low": 0
+        },
+        "changes": [
+          {
+            "kind": "changed",
+            "name": "label 'Work email'",
+            "selector": "label",
+            "base": 41,
+            "head": 41,
+            "confidence": "medium",
+            "reason": "same text \"Work email\"",
+            "changes": [
+              {
+                "property": "color",
+                "group": "color",
+                "before": "#f8fafc",
+                "after": "#2563eb"
+              }
+            ],
+            "box": {
+              "x": 144,
+              "y": 1405.796875,
+              "width": 274,
+              "height": 21
+            },
+            "deviceBox": {
+              "x": 144,
+              "y": 1406,
+              "width": 274,
+              "height": 21
+            },
+            "magnitude": 29.328647573144913,
+            "verified": true
+          },
+          {
+            "kind": "changed",
+            "name": "link 'Start free trial'",
+            "selector": "a.cta",
+            "base": 13,
+            "head": 13,
+            "confidence": "high",
+            "reason": "same link named \"Start free trial\"",
+            "changes": [
+              {
+                "property": "size",
+                "group": "box",
+                "before": "134.5×40px",
+                "after": "142.5×44px"
+              },
+              {
+                "property": "padding",
+                "group": "box",
+                "before": "8px 14px",
+                "after": "10px 18px"
+              },
+              {
+                "property": "border-radius",
+                "group": "shape",
+                "before": "4px",
+                "after": "8px"
+              }
+            ],
+            "box": {
+              "x": 144,
+              "y": 283.796875,
+              "width": 142.484375,
+              "height": 44
+            },
+            "deviceBox": {
+              "x": 144,
+              "y": 284,
+              "width": 142,
+              "height": 44
+            },
+            "magnitude": 20,
+            "verified": true
+          },
+          {
+            "kind": "changed",
+            "name": "div.hero-actions",
+            "selector": "div.hero-actions",
+            "base": 12,
+            "head": 12,
+            "confidence": "medium",
+            "reason": "same selector",
+            "changes": [
+              {
+                "property": "size",
+                "group": "box",
+                "before": "992×40px",
+                "after": "992×44px"
+              },
+              {
+                "property": "gap",
+                "group": "box",
+                "before": "16px",
+                "after": "17px"
+              }
+            ],
+            "box": {
+              "x": 144,
+              "y": 283.796875,
+              "width": 992,
+              "height": 44
+            },
+            "deviceBox": {
+              "x": 144,
+              "y": 284,
+              "width": 992,
+              "height": 44
+            },
+            "magnitude": 9,
+            "verified": true
+          }
+        ],
+        "regions": [
+          {
+            "region": {
+              "x": 0,
+              "y": 280,
+              "width": 1280,
+              "height": 48
+            },
+            "changes": [
+              1,
+              2
+            ]
+          },
+          {
+            "region": {
+              "x": 144,
+              "y": 1408,
+              "width": 80,
+              "height": 16
+            },
+            "element": {
+              "name": "label 'Work email'",
+              "selector": "label"
+            },
+            "changes": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "home__mobile__light",
+      "route": {
+        "path": "/",
+        "name": "home",
+        "slug": "home"
+      },
+      "viewport": "mobile",
+      "theme": "light",
+      "status": "changed",
+      "urls": {},
+      "images": {
+        "focus": [
+          "compare/home__mobile__light__focus-1.png",
+          "compare/home__mobile__light__focus-2.png"
+        ],
+        "base": "captures/base/home__mobile__light.png",
+        "head": "captures/head/home__mobile__light.png",
+        "diff": "diff/home__mobile__light.png",
+        "compare": "compare/home__mobile__light.png",
+        "pairs": [
+          "compare/home__mobile__light__pair-1.png",
+          "compare/home__mobile__light__pair-2.png"
+        ],
+        "blinks": [
+          "compare/home__mobile__light__blink-1.gif",
+          "compare/home__mobile__light__blink-2.gif"
+        ]
+      },
+      "warnings": [],
+      "truncated": false,
+      "fingerprint": {
+        "base": {
+          "commit": "6737326b2e051665eb7b14a33d39acee32ff22de",
+          "viewport": {
+            "width": 390,
+            "height": 844,
+            "deviceScaleFactor": 2,
+            "isMobile": true
+          },
+          "browser": {
+            "name": "chromium",
+            "version": "159.0.8154.6",
+            "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+          },
+          "fonts": {
+            "loaded": [],
+            "failed": [],
+            "pending": []
+          },
+          "freeze": {
+            "clock": "2026-01-15T09:30:00.000Z",
+            "seed": 795556381,
+            "animations": true,
+            "fonts": true
+          },
+          "media": {
+            "reducedMotion": "reduce",
+            "colorScheme": "light",
+            "locale": "en-US",
+            "timezone": "UTC"
+          },
+          "data": "not declared",
+          "cache": {
+            "hit": false,
+            "key": "base-6737326b2e05-19cef14daae165b3"
+          }
+        },
+        "head": {
+          "commit": "cc13cab81ca4c056ebe8ed861cce6747f2495e59",
+          "viewport": {
+            "width": 390,
+            "height": 844,
+            "deviceScaleFactor": 2,
+            "isMobile": true
+          },
+          "browser": {
+            "name": "chromium",
+            "version": "159.0.8154.6",
+            "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+          },
+          "fonts": {
+            "loaded": [],
+            "failed": [],
+            "pending": []
+          },
+          "freeze": {
+            "clock": "2026-01-15T09:30:00.000Z",
+            "seed": 795556381,
+            "animations": true,
+            "fonts": true
+          },
+          "media": {
+            "reducedMotion": "reduce",
+            "colorScheme": "light",
+            "locale": "en-US",
+            "timezone": "UTC"
+          },
+          "data": "not declared"
+        },
+        "differences": []
+      },
+      "diff": {
+        "changedPixels": 12100,
+        "ratio": 0.003998149616706317,
+        "regions": [
+          {
+            "x": 0,
+            "y": 608,
+            "width": 780,
+            "height": 112
+          },
+          {
+            "x": 48,
+            "y": 3296,
+            "width": 160,
+            "height": 48
+          }
+        ],
+        "scale": 2,
+        "sizeBefore": [
+          780,
+          3872
+        ],
+        "sizeAfter": [
+          780,
+          3880
+        ],
+        "sizeChanged": true,
+        "shifted": [
+          {
+            "beforeY": 350,
+            "afterY": 354,
+            "height": 1586,
+            "dy": 4
+          }
+        ],
+        "focusBoxes": [
+          {
+            "x": 0,
+            "y": 222,
+            "width": 390,
+            "height": 220
+          },
+          {
+            "x": 0,
+            "y": 1550,
+            "width": 390,
+            "height": 220
+          }
+        ]
+      },
+      "elementMap": {
+        "base": {
+          "elements": 48
+        },
+        "head": {
+          "elements": 48
+        }
+      },
+      "styleDiff": {
+        "matched": {
+          "high": 18,
+          "medium": 30,
+          "low": 0
+        },
+        "changes": [
+          {
+            "kind": "changed",
+            "name": "label 'Work email'",
+            "selector": "label",
+            "base": 37,
+            "head": 37,
+            "confidence": "medium",
+            "reason": "same text \"Work email\"",
+            "changes": [
+              {
+                "property": "color",
+                "group": "color",
+                "before": "#0f172a",
+                "after": "#2563eb"
+              }
+            ],
+            "box": {
+              "x": 24,
+              "y": 1649.515625,
+              "width": 274,
+              "height": 21
+            },
+            "deviceBox": {
+              "x": 48,
+              "y": 3299,
+              "width": 548,
+              "height": 42
+            },
+            "magnitude": 24.06183123277154,
+            "verified": true
+          },
+          {
+            "kind": "changed",
+            "name": "link 'Start free trial'",
+            "selector": "a.cta",
+            "base": 9,
+            "head": 9,
+            "confidence": "high",
+            "reason": "same link named \"Start free trial\"",
+            "changes": [
+              {
+                "property": "size",
+                "group": "box",
+                "before": "134.5×40px",
+                "after": "142.5×44px"
+              },
+              {
+                "property": "padding",
+                "group": "box",
+                "before": "8px 14px",
+                "after": "10px 18px"
+              },
+              {
+                "property": "border-radius",
+                "group": "shape",
+                "before": "4px",
+                "after": "8px"
+              }
+            ],
+            "box": {
+              "x": 24,
+              "y": 310.1875,
+              "width": 142.484375,
+              "height": 44
+            },
+            "deviceBox": {
+              "x": 48,
+              "y": 620,
+              "width": 285,
+              "height": 88
+            },
+            "magnitude": 20,
+            "verified": true
+          },
+          {
+            "kind": "changed",
+            "name": "div.hero-actions",
+            "selector": "div.hero-actions",
+            "base": 8,
+            "head": 8,
+            "confidence": "medium",
+            "reason": "same selector",
+            "changes": [
+              {
+                "property": "size",
+                "group": "box",
+                "before": "342×40px",
+                "after": "342×44px"
+              },
+              {
+                "property": "gap",
+                "group": "box",
+                "before": "16px",
+                "after": "17px"
+              }
+            ],
+            "box": {
+              "x": 24,
+              "y": 310.1875,
+              "width": 342,
+              "height": 44
+            },
+            "deviceBox": {
+              "x": 48,
+              "y": 620,
+              "width": 684,
+              "height": 88
+            },
+            "magnitude": 9,
+            "verified": true
+          }
+        ],
+        "regions": [
+          {
+            "region": {
+              "x": 0,
+              "y": 608,
+              "width": 780,
+              "height": 112
+            },
+            "element": {
+              "name": "main.container",
+              "selector": "main.container"
+            },
+            "changes": [
+              1,
+              2
+            ]
+          },
+          {
+            "region": {
+              "x": 48,
+              "y": 3296,
+              "width": 160,
+              "height": 48
+            },
+            "element": {
+              "name": "label 'Work email'",
+              "selector": "label"
+            },
+            "changes": [
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "home__mobile__dark",
+      "route": {
+        "path": "/",
+        "name": "home",
+        "slug": "home"
+      },
+      "viewport": "mobile",
+      "theme": "dark",
+      "status": "changed",
+      "urls": {},
+      "images": {
+        "focus": [
+          "compare/home__mobile__dark__focus-1.png",
+          "compare/home__mobile__dark__focus-2.png"
+        ],
+        "base": "captures/base/home__mobile__dark.png",
+        "head": "captures/head/home__mobile__dark.png",
+        "diff": "diff/home__mobile__dark.png",
+        "compare": "compare/home__mobile__dark.png",
+        "pairs": [
+          "compare/home__mobile__dark__pair-1.png",
+          "compare/home__mobile__dark__pair-2.png"
+        ],
+        "blinks": [
+          "compare/home__mobile__dark__blink-1.gif",
+          "compare/home__mobile__dark__blink-2.gif"
+        ]
+      },
+      "warnings": [],
+      "truncated": false,
+      "fingerprint": {
+        "base": {
+          "commit": "6737326b2e051665eb7b14a33d39acee32ff22de",
+          "viewport": {
+            "width": 390,
+            "height": 844,
+            "deviceScaleFactor": 2,
+            "isMobile": true
+          },
+          "browser": {
+            "name": "chromium",
+            "version": "159.0.8154.6",
+            "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+          },
+          "fonts": {
+            "loaded": [],
+            "failed": [],
+            "pending": []
+          },
+          "freeze": {
+            "clock": "2026-01-15T09:30:00.000Z",
+            "seed": 795556381,
+            "animations": true,
+            "fonts": true
+          },
+          "media": {
+            "reducedMotion": "reduce",
+            "colorScheme": "dark",
+            "locale": "en-US",
+            "timezone": "UTC"
+          },
+          "data": "not declared",
+          "cache": {
+            "hit": false,
+            "key": "base-6737326b2e05-19cef14daae165b3"
+          }
+        },
+        "head": {
+          "commit": "cc13cab81ca4c056ebe8ed861cce6747f2495e59",
+          "viewport": {
+            "width": 390,
+            "height": 844,
+            "deviceScaleFactor": 2,
+            "isMobile": true
+          },
+          "browser": {
+            "name": "chromium",
+            "version": "159.0.8154.6",
+            "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+          },
+          "fonts": {
+            "loaded": [],
+            "failed": [],
+            "pending": []
+          },
+          "freeze": {
+            "clock": "2026-01-15T09:30:00.000Z",
+            "seed": 795556381,
+            "animations": true,
+            "fonts": true
+          },
+          "media": {
+            "reducedMotion": "reduce",
+            "colorScheme": "dark",
+            "locale": "en-US",
+            "timezone": "UTC"
+          },
+          "data": "not declared"
+        },
+        "differences": []
+      },
+      "diff": {
+        "changedPixels": 12130,
+        "ratio": 0.004008062384351044,
+        "regions": [
+          {
+            "x": 0,
+            "y": 608,
+            "width": 780,
+            "height": 112
+          },
+          {
+            "x": 48,
+            "y": 3296,
+            "width": 160,
+            "height": 48
+          }
+        ],
+        "scale": 2,
+        "sizeBefore": [
+          780,
+          3872
+        ],
+        "sizeAfter": [
+          780,
+          3880
+        ],
+        "sizeChanged": true,
+        "shifted": [
+          {
+            "beforeY": 350,
+            "afterY": 354,
+            "height": 1586,
+            "dy": 4
+          }
+        ],
+        "focusBoxes": [
+          {
+            "x": 0,
+            "y": 222,
+            "width": 390,
+            "height": 220
+          },
+          {
+            "x": 0,
+            "y": 1550,
+            "width": 390,
+            "height": 220
+          }
+        ]
+      },
+      "elementMap": {
+        "base": {
+          "elements": 48
+        },
+        "head": {
+          "elements": 48
+        }
+      },
+      "styleDiff": {
+        "matched": {
+          "high": 18,
+          "medium": 30,
+          "low": 0
+        },
+        "changes": [
+          {
+            "kind": "changed",
+            "name": "label 'Work email'",
+            "selector": "label",
+            "base": 37,
+            "head": 37,
+            "confidence": "medium",
+            "reason": "same text \"Work email\"",
+            "changes": [
+              {
+                "property": "color",
+                "group": "color",
+                "before": "#f8fafc",
+                "after": "#2563eb"
+              }
+            ],
+            "box": {
+              "x": 24,
+              "y": 1649.515625,
+              "width": 274,
+              "height": 21
+            },
+            "deviceBox": {
+              "x": 48,
+              "y": 3299,
+              "width": 548,
+              "height": 42
+            },
+            "magnitude": 29.328647573144913,
+            "verified": true
+          },
+          {
+            "kind": "changed",
+            "name": "link 'Start free trial'",
+            "selector": "a.cta",
+            "base": 9,
+            "head": 9,
+            "confidence": "high",
+            "reason": "same link named \"Start free trial\"",
+            "changes": [
+              {
+                "property": "size",
+                "group": "box",
+                "before": "134.5×40px",
+                "after": "142.5×44px"
+              },
+              {
+                "property": "padding",
+                "group": "box",
+                "before": "8px 14px",
+                "after": "10px 18px"
+              },
+              {
+                "property": "border-radius",
+                "group": "shape",
+                "before": "4px",
+                "after": "8px"
+              }
+            ],
+            "box": {
+              "x": 24,
+              "y": 310.1875,
+              "width": 142.484375,
+              "height": 44
+            },
+            "deviceBox": {
+              "x": 48,
+              "y": 620,
+              "width": 285,
+              "height": 88
+            },
+            "magnitude": 20,
+            "verified": true
+          },
+          {
+            "kind": "changed",
+            "name": "div.hero-actions",
+            "selector": "div.hero-actions",
+            "base": 8,
+            "head": 8,
+            "confidence": "medium",
+            "reason": "same selector",
+            "changes": [
+              {
+                "property": "size",
+                "group": "box",
+                "before": "342×40px",
+                "after": "342×44px"
+              },
+              {
+                "property": "gap",
+                "group": "box",
+                "before": "16px",
+                "after": "17px"
+              }
+            ],
+            "box": {
+              "x": 24,
+              "y": 310.1875,
+              "width": 342,
+              "height": 44
+            },
+            "deviceBox": {
+              "x": 48,
+              "y": 620,
+              "width": 684,
+              "height": 88
+            },
+            "magnitude": 9,
+            "verified": true
+          }
+        ],
+        "regions": [
+          {
+            "region": {
+              "x": 0,
+              "y": 608,
+              "width": 780,
+              "height": 112
+            },
+            "element": {
+              "name": "main.container",
+              "selector": "main.container"
+            },
+            "changes": [
+              1,
+              2
+            ]
+          },
+          {
+            "region": {
+              "x": 48,
+              "y": 3296,
+              "width": 160,
+              "height": 48
+            },
+            "element": {
+              "name": "label 'Work email'",
+              "selector": "label"
+            },
+            "changes": [
+              0
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "variants": [
+    {
+      "id": "home__desktop__light__hero",
+      "route": {
+        "path": "/",
+        "name": "home",
+        "slug": "home"
+      },
+      "param": "hero",
+      "viewport": "desktop",
+      "theme": "light",
+      "items": [
+        {
+          "value": "1",
+          "image": "variants/home__desktop__light__hero-1.png"
+        },
+        {
+          "value": "2",
+          "image": "variants/home__desktop__light__hero-2.png"
+        },
+        {
+          "value": "3",
+          "image": "variants/home__desktop__light__hero-3.png"
+        },
+        {
+          "value": "4",
+          "image": "variants/home__desktop__light__hero-4.png"
+        }
+      ],
+      "strip": "variants/home__desktop__light__hero__strip.png"
+    }
+  ],
+  "motion": [
+    {
+      "id": "home__desktop__light",
+      "route": {
+        "path": "/",
+        "name": "home",
+        "slug": "home"
+      },
+      "viewport": "desktop",
+      "theme": "light",
+      "steps": [
+        "wait 400ms",
+        "hover .cta",
+        "wait 700ms",
+        "click [data-tab=yearly] (not on base)",
+        "wait 900ms"
+      ],
+      "frames": {
+        "base": 1,
+        "head": 1
+      },
+      "warnings": [
+        "no motion detected: the clip has a single frame on both sides (nothing animated during these steps)"
+      ],
+      "gif": "motion/home__desktop__light.gif",
+      "webm": {
+        "base": "motion/home__desktop__light__before.webm",
+        "head": "motion/home__desktop__light__after.webm"
+      }
+    }
+  ],
+  "tokens": {
+    "files": [
+      "examples/sample-site/tokens.json"
+    ],
+    "scope": "changed-regions",
+    "audited": [
+      "home__desktop__light",
+      "home__desktop__dark",
+      "home__mobile__light",
+      "home__mobile__dark"
+    ],
+    "skipped": [],
+    "findings": [
+      {
+        "property": "spacing",
+        "value": "17px",
+        "count": 1,
+        "selectors": [
+          "div.hero-actions"
+        ],
+        "captures": [
+          "/ desktop/light",
+          "/ desktop/dark",
+          "/ mobile/light",
+          "/ mobile/dark"
+        ],
+        "nearest": "space.4 (16px)",
+        "isNew": true
+      },
+      {
+        "property": "spacing",
+        "value": "10px",
+        "count": 1,
+        "selectors": [
+          "a.cta"
+        ],
+        "captures": [
+          "/ desktop/light",
+          "/ desktop/dark",
+          "/ mobile/light",
+          "/ mobile/dark"
+        ],
+        "nearest": "space.2 (8px)",
+        "isNew": true
+      },
+      {
+        "property": "spacing",
+        "value": "18px",
+        "count": 1,
+        "selectors": [
+          "a.cta"
+        ],
+        "captures": [
+          "/ desktop/light",
+          "/ desktop/dark",
+          "/ mobile/light",
+          "/ mobile/dark"
+        ],
+        "nearest": "space.4 (16px)",
+        "isNew": true
+      }
+    ]
+  },
+  "a11y": {
+    "tags": [
+      "wcag2a",
+      "wcag2aa",
+      "wcag21a",
+      "wcag21aa",
+      "wcag22aa"
+    ],
+    "audited": [
+      "home__desktop__light",
+      "home__desktop__dark",
+      "home__mobile__light",
+      "home__mobile__dark"
+    ],
+    "added": [
+      {
+        "rule": "color-contrast",
+        "impact": "serious",
+        "help": "Elements must meet minimum color contrast ratio thresholds",
+        "helpUrl": "https://dequeuniversity.com/rules/axe/4.14/color-contrast?application=axeAPI",
+        "category": "contrast",
+        "target": "label",
+        "html": "<label for=\"email\">Work email</label>",
+        "summary": "Fix any of the following: Element has insufficient color contrast of 3.45 (foreground color: #2563eb, background color: #0f172a, font size: 10.5pt (14px), font weight: normal). Expected contrast ratio of 4.5:1",
+        "captures": [
+          "/ desktop/dark",
+          "/ mobile/dark"
+        ]
+      }
+    ],
+    "fixed": [],
+    "focus": [
+      {
+        "capture": "/ desktop",
+        "delta": {
+          "changed": false,
+          "added": [],
+          "removed": [],
+          "renamed": [],
+          "reordered": false,
+          "before": [
+            "link \"Acme Analytics\"",
+            "link \"Features\"",
+            "link \"Pricing\"",
+            "link \"About\"",
+            "link \"Start free trial\"",
+            "link \"See how it works\"",
+            "textbox \"Work email\"",
+            "button \"Subscribe\""
+          ],
+          "after": [
+            "link \"Acme Analytics\"",
+            "link \"Features\"",
+            "link \"Pricing\"",
+            "link \"About\"",
+            "link \"Start free trial\"",
+            "link \"See how it works\"",
+            "textbox \"Work email\"",
+            "button \"Subscribe\""
+          ],
+          "newOrderJumps": [],
+          "fixedOrderJumps": []
+        }
+      },
+      {
+        "capture": "/ mobile",
+        "delta": {
+          "changed": false,
+          "added": [],
+          "removed": [],
+          "renamed": [],
+          "reordered": false,
+          "before": [
+            "link \"Acme Analytics\"",
+            "link \"Start free trial\"",
+            "link \"See how it works\"",
+            "textbox \"Work email\"",
+            "button \"Subscribe\""
+          ],
+          "after": [
+            "link \"Acme Analytics\"",
+            "link \"Start free trial\"",
+            "link \"See how it works\"",
+            "textbox \"Work email\"",
+            "button \"Subscribe\""
+          ],
+          "newOrderJumps": [],
+          "fixedOrderJumps": []
+        }
+      }
+    ],
+    "errors": []
+  },
+  "baseCache": {
+    "key": "base-6737326b2e05-19cef14daae165b3",
+    "hit": false,
+    "configHash": "758e57dd6b670b60",
+    "browser": "chromium 159.0.8154.6",
+    "uiDiffVersion": "2.0.0",
+    "stored": true
+  },
+  "warnings": [],
+  "stats": {
+    "captures": 4,
+    "changed": 4,
+    "unchanged": 0,
+    "added": 0,
+    "removed": 0,
+    "errors": 0
+  },
+  "timings": {
+    "totalMs": 29557,
+    "detectMs": 47,
+    "prepare": {
+      "wallMs": 452,
+      "base": {
+        "mode": "worktree",
+        "checkoutMs": 15,
+        "install": {
+          "kind": "none",
+          "ms": 0
+        },
+        "bootMs": 424,
+        "totalMs": 441
+      },
+      "head": {
+        "mode": "worktree",
+        "checkoutMs": 36,
+        "install": {
+          "kind": "none",
+          "ms": 0
+        },
+        "bootMs": 411,
+        "totalMs": 450
+      }
+    },
+    "browserMs": 37,
+    "capture": {
+      "ms": 13802,
+      "count": 8,
+      "slowest": {
+        "id": "home__mobile__light",
+        "side": "head",
+        "ms": 1760
+      }
+    },
+    "diffMs": 4266,
+    "extras": {
+      "variantsMs": 6469,
+      "motionMs": 4449,
+      "tokensMs": 9,
+      "a11yMs": 1116,
+      "styleDiffMs": 17,
+      "elementMapMs": 258
+    }
+  }
+}

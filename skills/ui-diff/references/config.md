@@ -220,13 +220,16 @@ head elements are matched by stable attributes, then text and structure, then po
 with a confidence and a reason; the rest are added or removed. Matched pairs are compared on box
 (padding, margin, gap, size, position), type, color, shape, layout, text and image source, after
 normalizing colors and rounding px to 0.5. Each changed pixel area is named after the smallest
-element containing it. The comment lists the measured changes under each changed route, biggest
-first, and names what each zoomed crop shows.
+element containing it. Before the comment is written each change is verified: it needs at least
+`styleDiff.minConfidence` and a changed pixel area under its box, else it is listed as unverified
+with the reason. The comment lists the verified changes grouped by route right after the verdict,
+biggest first, and names what each still pair shows.
 
 | Key | Default | Notes |
 |---|---|---|
 | `styleDiff.enabled` | `true` | `false` skips the element map and the style diff. |
 | `styleDiff.maxChanges` | `50` | Most element changes kept per capture in `report.json`; the comment says how many were left out. |
+| `styleDiff.minConfidence` | `medium` | Weakest match (`high`, `medium`, `low`) a measured change may have and still count as verified. |
 
 ## Fingerprint
 

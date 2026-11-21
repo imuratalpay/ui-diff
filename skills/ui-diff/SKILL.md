@@ -6,7 +6,8 @@ description: Before/after screenshots, highlighted pixel diffs and a short UX su
 # ui-diff
 
 Renders the affected routes of a web app at the PR's **base** and **head**, diffs the
-screenshots, and posts one PR comment with `before | after | diff` images and a UX summary.
+screenshots, and posts one PR comment that starts with the verdict, then the measured element
+changes, still `base | head` pairs of each changed area and your UX summary.
 The mechanics are scripted; your job is the judgment: which routes matter, what the changes
 mean for users, and whether it is OK to post.
 
@@ -89,8 +90,9 @@ node "$SKILL/bin/ui-diff.mjs" run --pr <n> [--routes "/,/pricing"] [--viewports 
 
 In one go it creates git worktrees for base (the merge base) and head, links or installs
 dependencies, starts each app on a free port in its own process group, captures every
-route × viewport × theme, diffs with pixelmatch, composes `before | after | diff` images (full
-page plus zoomed crops of the changed areas), runs the enabled extras, and cleans up. Captures are
+route × viewport × theme, diffs with pixelmatch, writes per changed area a still `base | head`
+pair with the changed boxes outlined, a blink GIF and a `before | after | diff` crop (plus the full
+page), runs the enabled extras, and cleans up. Captures are
 deterministic (`freeze`, on by default): `Date` frozen at run start, `Math.random` and `crypto`
 seeded, animations, transitions and the caret stopped, web fonts and images awaited; plus hidden
 scrollbars, scroll reset and masked selectors (`capture.mask`, for carousels and live counters), and
@@ -112,9 +114,13 @@ an earlier run): do not publish until a rerun succeeds.
 Start from the measured changes: `captures[].styleDiff.changes` in `report.json` names each changed
 element with exact before → after values (padding, color, radius, text, added, removed, reordered),
 and `styleDiff.regions` says which element each changed area belongs to; quote those values
-instead of estimating from pixels. Open the images before writing (focus crops `compare/*__focus-*.png` first, then the full
-composites, `variants/*__strip.png` and `motion/*.gif`). Read `.ui-diff/report.json` for the
-measured data, and start from `.ui-diff/summary.auto.md`. Write `.ui-diff/summary.md` for a
+instead of estimating from pixels. A change with `verified: false` did not pass the check (weak
+match, or no changed pixels under it): its `unverified` reasons say why; do not state it as fact
+without the images. Open the images before writing (the still pairs `compare/*__pair-*.png` first,
+then the `compare/*__focus-*.png` diff crops, the full composites, `variants/*__strip.png` and
+`motion/*.gif`). Read `.ui-diff/report.json` for the measured data, and start from
+`.ui-diff/summary.auto.md`. The comment's first line is the verdict and the measured changes follow
+it, so the summary need not repeat them: say what they mean for users. Write `.ui-diff/summary.md` for a
 designer or PM who will not read the code:
 
 ```markdown
@@ -130,8 +136,9 @@ designer or PM who will not read the code:
 ```
 
 A capture whose base and head environments differed (fonts, device pixel ratio, browser; see
-`fingerprint.differences` in `report.json`) gets a warning in the comment: name it in "worth a
-look" and do not describe that diff as a product change without checking the images.
+`fingerprint.differences` in `report.json`) gets a warning in the comment, and `notComparable` in
+the report makes the verdict say the captures were not comparable: name it in "worth a look" and do
+not describe that diff as a product change without checking the images.
 
 Guidelines: lead "worth a look" with likely-unintended changes (a page changed without its files
 changing, breakage at one viewport, new a11y issues, off-token values). Content that only moved

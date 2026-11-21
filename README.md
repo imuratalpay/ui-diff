@@ -19,7 +19,11 @@ Site: [skills.muratalpay.me/ui-diff](https://skills.muratalpay.me/ui-diff).
 - [What it does](#what-it-does)
 - [Install](#install)
 - [Use](#use)
+  - [Local check](#local-check)
+  - [The comment](#the-comment)
+  - [Base cache](#base-cache)
 - [Configure](#configure)
+  - [Focus and ignore](#focus-and-ignore)
 - [Privacy and image hosting](#privacy-and-image-hosting)
 - [Verified example](#verified-example)
 - [Troubleshooting](#troubleshooting)
@@ -42,8 +46,7 @@ ui-diff check          # your working tree vs the merge base: a short summary, n
 ```
 
 The first `run` downloads Chromium (~150 MB). Results are in `.ui-diff/`: open
-`.ui-diff/comment.local.md` for the comment preview and `.ui-diff/compare/` for the
-`before | after | diff` images. Nothing is posted until you run `ui-diff publish`. In an agent
+`.ui-diff/comment.local.md` for the comment preview and `.ui-diff/compare/` for the images. Nothing is posted until you run `ui-diff publish`. In an agent
 session, ask: *"Run the ui-diff skill on PR #123 and update the sticky PR comment."*
 If something fails, see [Troubleshooting](#troubleshooting).
 
@@ -64,15 +67,17 @@ If something fails, see [Troubleshooting](#troubleshooting).
    scrollbars and dev overlays, scroll reset, service workers blocked, and each shot retaken until
    consecutive screenshots match. Viewports default to desktop and mobile; themes such as
    `?theme=dark` are configurable.
-4. **Diffs with pixelmatch** and composes `before | after | diff` images: a full-page composite and
-   zoomed crops of the largest changed areas, with changed pixels highlighted and boxed.
+4. **Diffs with pixelmatch** and, for each changed area, writes a still `base | head` pair with the
+   changed boxes outlined, a blink GIF of the same crop and a `before | after | diff` crop with the
+   changed pixels highlighted, plus a full-page composite.
 5. **Names what changed**: an element map of each capture matches base and head elements and
    measures their style changes, so the comment says `link 'Get started': padding 8px 14px →
-   10px 18px` instead of only "N pixels changed".
+   10px 18px` instead of only "N pixels changed". Each measured change is checked against the
+   match confidence and the changed pixels before it is shown.
 6. **Writes a UX summary**: the agent writes it from the images and measurements (a data-driven
    fallback summary is generated for CI).
-7. **Creates or updates one PR comment** via `gh`, found by a hidden marker. Reruns edit it in
-   place; nothing stacks.
+7. **Creates or updates one PR comment** via `gh`, found by a hidden marker, that starts with the
+   verdict ([The comment](#the-comment)). Reruns edit it in place; nothing stacks.
 
 Extras, each behind a flag or config key:
 
@@ -188,9 +193,90 @@ VERCEL_AUTOMATION_BYPASS_SECRET=… ui-diff run --base-url https://app-git-main-
 ```
 
 Every command prints JSON on stdout (logs go to stderr), so agents can parse results; `check`
-prints a short text summary instead unless you pass `--json`. Its report and images go to
-`.ui-diff/out/`, and its exit code (0 no visual changes, 1 changes, 2 errors) can gate a pre-push
-hook: `ui-diff check --quiet || exit 1` in `.git/hooks/pre-push`.
+prints a short text summary instead unless you pass `--json`.
+
+### Local check
+
+`ui-diff check` answers "did my change move anything?" before you push. Head is your working tree,
+uncommitted and untracked changes included; base is the merge base with the default branch, or
+`--base <ref>`. It runs the same capture and diff as `run`, writes the report and images to
+`.ui-diff/out/`, and posts and pushes nothing.
+
+```text
+ui-diff check: 1 measured change on 1 route (exit 1)
+base main @ 3075b4c → head working tree @ 8103b60 + uncommitted changes · 1 route · desktop, mobile · light, dark
+
+Measured changes on /
+  - link 'Start free trial' (a.cta): size 142.5×44px → 146.5×48px · padding 10px 18px → 12px 20px
+
+Images (4 of 4 captures changed)
+  /  desktop/light  0.33% of pixels changed · 1 area · content shifted down 4px (unchanged, not counted) · page height 1607 → 1611px
+    .ui-diff/out/compare/home__desktop__light__pair-1.png
+  …
+
+Captured with chromium 159.0.8154.6 · clock 2026-01-15T09:30:00.000Z · en-US UTC
+⏱ 23s total · detect 0.1s · prepare 0.5s (base: cached 0.0s ‖ head: none 0.0s, boot 0.4s) · capture 6.9s (4 screenshots, slowest 1.8s) · diff 3.9s · …
+Report: .ui-diff/out/report.json · images: .ui-diff/out/compare/ · preview: .ui-diff/out/comment.local.md
+```
+
+The summary follows the order of the PR comment: the verdict, measured changes by route, the image
+pairs, pixel changes nothing measured explains, failures and warnings, then how it was captured
+and the timing. The exit code is 0 when nothing changed visually (or no UI file changed), 1 when
+something did and 2 on any error, so it can gate a pre-push hook:
+`ui-diff check --quiet || exit 1` in `.git/hooks/pre-push`. `--json` prints the verdict, exit code
+and stats instead. `check` shares the [base cache](#base-cache) with `run`, so a second check
+against the same base skips capturing base.
+
+### The comment
+
+The comment is built so the first line answers the question and everything after it is evidence,
+most useful first:
+
+1. **Verdict**, in plain words: "No visual changes", "3 measured changes on 2 routes", "Visual
+   changes on 1 route, none measured", "Changes found, but captures were not comparable", or
+   "Nothing was checked" when no route was captured. Below it: base and head, routes, viewports,
+   themes, capture counts, the focused and ignored regions, and a warning when base and head were
+   captured differently (fonts, browser, viewport, pixel ratio, clock…), in which case the run is
+   never reported as clean.
+2. **Your summary**, when the agent or you wrote `.ui-diff/summary.md`.
+3. **Measured changes**, grouped by route, element first and then each property `old → new`,
+   biggest first. A change seen on only some viewports or themes says where. Changes that could not
+   be verified (matched with less than `styleDiff.minConfidence`, or with no changed pixels under
+   them) sit on a small "Unverified" line with the reason; none is dropped.
+4. **Images**: per changed area a still `base | head` pair with the changed boxes outlined and a
+   line naming what it shows, then a collapsed "Blink and diff" block with the blink GIF and the
+   `before | after | diff` crop, and the full page collapsed below. The still pair comes first so
+   people who find blinking images hard to read can compare side by side.
+5. **Pixel changes with no measured change**: changed areas no measured change explains, with their
+   size, place and the element they are in.
+6. Failed and partial captures, warnings, variants, motion, accessibility, design tokens,
+   unmatched files and dependency changes, and the unchanged captures, collapsed.
+7. **Capture settings and timing**, in one collapsed block: what each side was captured with, side
+   by side, and how long each phase took.
+
+The footer links the full `report.json`, which `publish` uploads next to the images. When the
+comment would pass the PR comment size limit it is shortened in steps and then leaves out whole
+sections, lowest priority first (capture settings and timing, then the unchanged list, and so on;
+the verdict and measured changes stay), and says which ones are in `report.json` instead.
+
+### Base cache
+
+Base rarely changes between pushes to a PR, so base captures are kept in `.ui-diff/cache/` and
+reused. The key is `base-<base sha, 12 hex>-<hash>`, the hash covering the base commit, the capture
+plan and settings (routes, viewports, themes, capture, freeze, focus and ignore, style and token
+settings, and how the app is installed, built and started, including the contents of
+`copyFiles`), the browser and its version, and the ui-diff version. On a hit base is not checked
+out, installed, built, started or captured, head is frozen at the same instant as the cached base,
+and the timing line says `base: cached`. Any mismatch or missing file captures base again; an
+entry is written whole or not at all. The ten newest entries are kept.
+
+```bash
+ui-diff run --no-cache     # capture base again
+ui-diff cache-key          # the key a run would use, for a CI cache
+```
+
+The capture settings in the comment show whether base was reused and the key. The example CI
+workflow restores and saves `.ui-diff/cache` under that key.
 
 ### CI
 
@@ -203,7 +289,9 @@ the skill committed into the app repository (`./install.sh --claude --project <a
 PRs, and uses the automatic summary. On PRs whose changed files include no UI file it posts
 nothing; on a sticky comment from an earlier push only the top line changes, to "no UI files
 changed in <sha>", and the last result with UI changes stays below it, collapsed.
-The workflow also documents an optional `paths:` filter for skipping the workflow on GitHub's side.
+The capture job restores and saves the [base cache](#base-cache) under the key `ui-diff cache-key`
+prints, so later pushes to the same PR capture only head. The workflow also documents an optional
+`paths:` filter for skipping the workflow on GitHub's side.
 
 ## Configure
 
@@ -223,6 +311,29 @@ The workflow also documents an optional `paths:` filter for skipping the workflo
   "tokens": { "enabled": true, "files": ["src/styles/tokens.css"] }
 }
 ```
+
+### Focus and ignore
+
+Both take CSS selectors, at the top level or per route:
+
+```json
+{
+  "focus": [".pricing"],
+  "ignore": [".ad-slot", "[data-live]"],
+  "routes": [{ "path": "/checkout", "focus": ["form.payment"] }]
+}
+```
+
+- `focus` limits the comparison to the matching elements: the pixel diff counts changes inside
+  their boxes only (a page that grew elsewhere is unchanged), the style diff lists only those
+  elements and what they contain, and the image crops stay inside them.
+- `ignore` paints the matching elements over on both sides, like `capture.mask`, and leaves them
+  out of the style diff.
+- Selectors are resolved on every capture. One that matches nothing on a side is a warning in the
+  report and the comment, never a failure; when no focus selector matches at all the whole page is
+  compared and the warning says so.
+- The comment names the focused and ignored regions under the verdict, and both are part of the
+  base cache key.
 
 All options: [`skills/ui-diff/references/config.md`](skills/ui-diff/references/config.md).
 Extras: [`references/extras.md`](skills/ui-diff/references/extras.md). JSON Schema:
@@ -258,15 +369,18 @@ repository: [`6737326`](../../commit/6737326b2e051665eb7b14a33d39acee32ff22de) (
 padding grows from 8×14px to 10×18px, its corner radius from 4px to 8px, the gap before the
 secondary link from 16px to 17px, and the "Work email" label turns brand blue). Running ui-diff
 on those two commits produced [`docs/example/comment.md`](docs/example/comment.md), the exact
-comment body that `publish` would post (with local image paths), and the images next to it.
+comment body that `publish` would post (with local image paths), and the images and `report.json`
+next to it.
 
-It found 4 changed captures (desktop/mobile × light/dark), about 0.34% of pixels on desktop and
+Its verdict is "3 measured changes on 1 route": the button's padding and radius, the actions' gap
+and the label's color, each measured on every capture it appears on. It found 4 changed captures (desktop/mobile × light/dark), about 0.34% of pixels on desktop and
 0.40% on mobile. The taller button shifts the rest of the page down 4px (desktop height 1603 →
 1607px); that shift is aligned out of the changed percentage. There is 1 new accessibility issue
 (the email label is 3.45:1 in dark mode) and 3 new off-token spacing values (`10px`, `18px`,
 `17px`). `?hero=1..4` is still configured and every value renders this same page. The motion clip
 is a single frame: the button has no hover animation, and the yearly tab the script clicks is not
-on the page. Comparing the after commit with itself reports 8/8 captures unchanged. Publishing was
+on the page. Comparing the after commit with itself (`--all-routes`) reports "No visual changes"
+with 8/8 captures unchanged. Publishing was
 verified against a local bare remote; no real PR was contacted. Reproduce with
 [`examples/README.md`](examples/README.md).
 
@@ -301,14 +415,16 @@ skills/ui-diff/
 ├── SKILL.md                 agent workflow (frontmatter: name, description)
 ├── bin/ui-diff.mjs          entry point: installs/builds on first use, then runs the CLI
 ├── src/
-│   ├── cli.ts               init · doctor · detect · run · render · publish · prune
+│   ├── cli.ts               init · doctor · detect · cache-key · run · check · render · publish · prune
 │   ├── config.ts schema.ts  zod config schema, defaults, JSON Schema
 │   ├── detect.ts conventions.ts imports.ts glob.ts   changed files → routes
 │   ├── sides.ts server.ts git.ts                     worktrees, installs, dev servers, previews
 │   ├── capture.ts determinism.ts steps.ts auth.ts    Playwright capture
 │   ├── diff.ts image.ts font.ts                      pixelmatch, regions, composites, labels
 │   ├── motion.ts tokens.ts a11y.ts                   extras
-│   ├── report.ts markdown.ts pipeline.ts             report, summary, comment
+│   ├── elements.ts styles.ts                         element map, matching, style diff, verification
+│   ├── cache.ts check.ts                             base cache, local check
+│   ├── report.ts verdict.ts markdown.ts pipeline.ts  report, verdict, comment
 │   └── publish.ts github.ts                          assets branch, sticky comment via gh
 ├── references/              config.md · extras.md · privacy.md · troubleshooting.md
 ├── schema/                  ui-diff.config.schema.json
