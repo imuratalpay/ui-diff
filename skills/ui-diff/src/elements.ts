@@ -174,8 +174,8 @@ export interface ElementChange {
   unverified?: string[];
 }
 
-/** Authored properties that change an element's own size. */
-const SIZE_CAUSES = new Set(['padding', 'gap', 'border-width', 'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'display', 'flex-direction', 'grid-auto-flow', 'justify-content', 'align-items']);
+/** Authored changes that change an element's own size: its box, type and layout, and its own text or image. */
+const SIZE_CAUSES = new Set(['padding', 'gap', 'border-width', 'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'display', 'flex-direction', 'grid-auto-flow', 'justify-content', 'align-items', 'text', 'image']);
 /** Authored properties of an ancestor that resize what it contains (its content box, inherited type, layout). */
 const ANCESTOR_CAUSES = new Set(['padding', 'border-width', 'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'display', 'flex-direction', 'grid-auto-flow', 'align-items']);
 const LAYOUT_CAUSES = new Set(['display', 'flex-direction', 'grid-auto-flow', 'justify-content', 'align-items', 'order']);

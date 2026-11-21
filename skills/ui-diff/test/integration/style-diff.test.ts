@@ -118,7 +118,7 @@ describe('measured style diff in reports and comments', { timeout: 300_000 }, ()
     const { report, comment } = await run('text');
     const lines = measured(report);
     assert.equal(lines.length, 1, JSON.stringify(lines));
-    assert.match(lines[0], /^link 'Plans': size .* · text 'Pricing' → 'Plans'$/);
+    assert.match(lines[0], /^link 'Plans': text 'Pricing' → 'Plans'$/, 'its size change follows from the text');
     assert.match(comment, /text 'Pricing' → 'Plans'/);
   });
 

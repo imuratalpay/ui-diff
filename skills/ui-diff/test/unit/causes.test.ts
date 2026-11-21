@@ -94,10 +94,21 @@ describe('causes and effects', () => {
     assert.ok(changes.flatMap((c) => c.changes).filter((p) => p.kind === 'effect').every((p) => p.cause === 'h3:padding'));
   });
 
-  it('keeps counting a size change that only a text change explains', () => {
+  it('counts a longer label as 1 change, its size and move as effects of the text', () => {
     const { report: r, changes } = report(hero(BEFORE), hero({ ...BEFORE, text: 'Start your free trial', width: 151.5 }));
-    assert.deepEqual(kinds(changes).filter((k) => k.startsWith('a.cta')), ['a.cta size unexplained', 'a.cta text cause', 'a.cta position effect ← h3:size']);
-    assert.equal(verdict(r).text, '2 measured changes on 1 route', 'the text and the size it caused, both counted');
+    assert.deepEqual(kinds(changes).filter((k) => k.startsWith('a.cta')), ['a.cta size effect ← h3:text', 'a.cta text cause', 'a.cta position effect ← h3:text']);
+    assert.equal(verdict(r).text, '1 measured change on 1 route');
+  });
+
+  it('counts an image swap that changes size as 1 change', () => {
+    const card = (src: string, height: number) => [
+      el({ tag: 'div', selector: 'div.card', box: { x: 0, y: 0, width: 400, height: height + 40 } }),
+      el({ tag: 'img', selector: 'img.logo', name: "img 'Logo'", label: 'Logo', role: 'img', src, parent: 0, box: { x: 20, y: 20, width: 120, height } }),
+      el({ tag: 'p', selector: 'div.card > p', ownText: 'Trusted by teams', parent: 0, box: { x: 20, y: height + 20, width: 360, height: 20 } }),
+    ];
+    const { report: r, changes } = report(card('/logo.svg', 40), card('/logo-2026.svg', 64));
+    assert.deepEqual(kinds(changes).sort(), ['div.card > p position effect ← h1:image', 'div.card size effect ← h1:image', 'img.logo image cause', 'img.logo size effect ← h1:image']);
+    assert.equal(verdict(r).text, '1 measured change on 1 route');
   });
 
   it('counts a parent that grew from a child padding change as an effect of it', () => {
