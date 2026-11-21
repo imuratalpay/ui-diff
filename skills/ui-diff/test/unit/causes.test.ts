@@ -128,6 +128,8 @@ describe('causes and effects', () => {
     const { report: r, changes } = report(card('/logo.svg', 40), card('/logo-2026.svg', 64));
     assert.deepEqual(kinds(changes).sort(), ['div.card > p position effect ← h1:image', 'div.card size effect ← h1:image', 'img.logo image cause', 'img.logo size effect ← h1:image']);
     assert.equal(verdict(r).text, '1 measured change on 1 route');
+    const body = renderComment(r, { id: 'default', title: 'UI diff', link: (p) => p });
+    assert.match(body, /: image \/logo\.svg → \/logo-2026\.svg — desktop\n {2}- size 120×40px → 120×64px \(from the image change\)\n {2}<details><summary>2 effects on other elements<\/summary>\n\n {2}- `div\.card`: size 400×80px → 400×104px\n {2}- `div\.card > p`: moved 24px down\n\n {2}<\/details>\n/, 'other elements are collapsed even when there are few, with their count in the summary');
   });
 
   it('counts a parent that grew from a child padding change as an effect of it', () => {

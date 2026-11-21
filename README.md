@@ -256,9 +256,10 @@ most useful first:
    under it in one line, such as `size 109.5×40px → 117.5×48px, moved 4px left (from the padding
    change)`; an effect seen on fewer variants than its cause names them right after the property
    (`moved on desktop · light, dark: 8px up`). Effects on other elements (a parent that grew,
-   siblings that moved) follow, collapsed past three. The verdict counts the causes, and `report.json` keeps every row under `measured`
-   with its kind (`cause`, `effect` or `unexplained`), the cause of each effect and the captures of
-   each. Changes that could not
+   siblings that moved) follow in a collapsed block whose summary says how many there are. The
+   verdict counts the causes, and `report.json` keeps every row under `measured` with its kind
+   (`cause`, `effect` or `unexplained`), the cause of each effect and the captures of each. Changes
+   that could not
    be verified (matched with less than `styleDiff.minConfidence`, or with no changed pixels under
    them) sit on a small "Unverified" line with the reason; none is dropped.
 4. **Images**: per changed area a still `base | head` pair with the changed boxes outlined and a

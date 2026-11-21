@@ -94,8 +94,6 @@ function elementLabel(name: string, selector: string): string {
 }
 
 const MEASURED_VISIBLE = 8;
-/** Effects on other elements than the cause's own are collapsed past this many. */
-const OTHER_EFFECTS_VISIBLE = 3;
 
 /**
  * Measured changes grouped by route: element first, then property old → new, biggest first, the
@@ -115,9 +113,10 @@ function measuredSection(report: Report, opts: RenderOptions): string[] {
       const own = effects.filter((e) => !e.element);
       const others = effects.filter((e) => e.element);
       lines.push(...own.map(text));
-      if (others.length <= OTHER_EFFECTS_VISIBLE) lines.push(...others.map(text));
-      else if (compact < 2) lines.push(`  <details><summary>${others.length} effects on other elements</summary>`, '', ...others.map(text), '', '  </details>', '');
-      else lines.push(`  - …and ${others.length} effects on other elements in \`report.json\``);
+      // Effects on other elements are always collapsed; the summary says how many.
+      const count = `${others.length} effect${others.length === 1 ? '' : 's'} on other elements`;
+      if (others.length && compact < 2) lines.push(`  <details><summary>${count}</summary>`, '', ...others.map(text), '', '  </details>', '');
+      else if (others.length) lines.push(`  - …and ${count} in \`report.json\``);
       return lines;
     };
     const visible = compact >= 2 ? 3 : MEASURED_VISIBLE;
