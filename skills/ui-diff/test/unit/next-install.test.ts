@@ -103,6 +103,8 @@ describe('Next.js dependencies in worktrees', () => {
         assert.equal(await (await fetch(head.url)).text(), 'next 16.0.0');
         assert.equal(lstatSync(path.join(head.dir!, 'node_modules', 'next')).isSymbolicLink(), false);
         assert.equal(existsSync(path.join(outDir, 'logs', 'install-head.log')), false, 'no install ran');
+        assert.equal(head.timings.install?.kind, 'copied');
+        assert.ok(head.timings.bootMs! > 0 && head.timings.totalMs >= head.timings.bootMs!);
       } finally {
         await sides.cleanup();
       }

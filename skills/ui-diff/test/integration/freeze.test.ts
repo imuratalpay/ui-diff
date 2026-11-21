@@ -141,6 +141,30 @@ describe('input freeze', { timeout: 300_000, skip: !FONT && 'no TrueType font fo
     }
   });
 
+  it('measures where the run spent its time', async () => {
+    const cfg = loadConfig(repo, repo);
+    const outDir = path.join(dir, 'timings');
+    const before = Date.now();
+    const { report } = await runPipeline({ cfg: { ...cfg, a11y: { ...cfg.a11y, enabled: true } }, outDir, base: sha, head: sha, allRoutes: true });
+    const elapsed = Date.now() - before;
+    const t = report.timings!;
+    assert.ok(t.totalMs > 0 && t.totalMs <= elapsed, `total ${t.totalMs} within the ${elapsed} ms the call took`);
+    for (const side of [t.prepare!.base, t.prepare!.head]) {
+      assert.equal(side.mode, 'worktree');
+      assert.deepEqual(side.install && side.install.kind, 'none', 'the fixture has no package.json');
+      assert.ok(side.bootMs! > 0 && side.checkoutMs! >= 0 && side.totalMs >= side.bootMs!);
+    }
+    assert.ok(t.prepare!.wallMs >= Math.max(t.prepare!.base.totalMs, t.prepare!.head.totalMs) - 5, 'sides prepare in parallel');
+    assert.equal(t.capture!.count, 2);
+    assert.ok(['base', 'head'].includes(t.capture!.slowest!.side) && t.capture!.slowest!.id === report.captures[0].id);
+    assert.ok(t.capture!.slowest!.ms <= t.capture!.ms);
+    assert.ok(t.extras!.a11yMs! > 0);
+    assert.equal(t.extras!.motionMs, undefined);
+    const phases = t.detectMs + t.prepare!.wallMs + t.browserMs! + t.capture!.ms + t.diffMs! + (t.extras!.a11yMs ?? 0);
+    assert.ok(phases <= t.totalMs + t.extras!.a11yMs!, `phases ${phases} fit in total ${t.totalMs} (a11y overlaps capture)`);
+    assert.match(readFileSync(path.join(outDir, 'comment.local.md'), 'utf8'), /<details><summary>⏱ .* total · detect .* · prepare .*\(base: none .*, boot .* ‖ head: none .*, boot .*\)/);
+  });
+
   it('shows the same page as changed when the clock is not frozen (the fixture really moves)', async () => {
     const cfg = loadConfig(repo, repo);
     const { report } = await runPipeline({ cfg: { ...cfg, freeze: { ...cfg.freeze, clock: false } }, outDir: path.join(dir, 'running'), base: sha, head: sha, allRoutes: true });

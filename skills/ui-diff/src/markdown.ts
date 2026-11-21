@@ -1,5 +1,5 @@
 import { categorize } from './a11y.js';
-import { autoSummary, captureLabel, describeCapture, notCheckedNotice, notCheckedReason, type CaptureResult, type Report } from './report.js';
+import { autoSummary, captureLabel, describeCapture, notCheckedNotice, notCheckedReason, type CaptureResult, type Report, type SideTiming, type Timings } from './report.js';
 
 export const MAX_COMMENT_LENGTH = 65000;
 
@@ -210,6 +210,65 @@ export function captureSettingsSection(report: Report): string[] {
   return ['<details><summary>Capture settings</summary>', '', '| | Base | Head |', '|---|---|---|', ...table, '', `<sub>${ua}</sub>`, '', '</details>', ''];
 }
 
+/** A measured duration for people: 0.3s, 3.2s, 41s, 1m 12s. */
+export function duration(ms: number): string {
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+function sideSteps(t: SideTiming): string[] {
+  if (t.mode === 'url') return ['deployed preview'];
+  return [
+    t.checkoutMs !== undefined ? `checkout ${duration(t.checkoutMs)}` : '',
+    t.install ? `install ${duration(t.install.ms)} (${t.install.kind}${t.install.retried ? ', after a failed start' : ''})` : '',
+    t.buildMs !== undefined ? `build ${duration(t.buildMs)}` : '',
+    t.bootMs !== undefined ? `boot ${duration(t.bootMs)}` : '',
+  ].filter(Boolean);
+}
+
+function sideBrief(t: SideTiming): string {
+  if (t.mode === 'url') return 'deployed preview';
+  return [t.install && `${t.install.kind} ${duration(t.install.ms)}`, t.buildMs !== undefined && `build ${duration(t.buildMs)}`, t.bootMs !== undefined && `boot ${duration(t.bootMs)}`].filter(Boolean).join(', ');
+}
+
+const EXTRA_LABELS: Array<[keyof NonNullable<Timings['extras']>, string, string]> = [
+  ['variantsMs', 'variants', 'variant screenshots'],
+  ['motionMs', 'motion', 'motion clips'],
+  ['a11yMs', 'a11y', 'axe and focus order (during capture) and the delta'],
+  ['tokensMs', 'tokens', 'style snapshots (during capture) and the audit'],
+];
+
+/** The whole run on one line; every number is measured. */
+export function timingLine(t: Timings): string {
+  const parts = [`⏱ ${duration(t.totalMs)} total`, `detect ${duration(t.detectMs)}`];
+  if (t.prepare) parts.push(`prepare ${duration(t.prepare.wallMs)} (base: ${sideBrief(t.prepare.base)} ‖ head: ${sideBrief(t.prepare.head)})`);
+  if (t.browserMs !== undefined) parts.push(`browser ${duration(t.browserMs)}`);
+  if (t.capture) parts.push(`capture ${duration(t.capture.ms)} (${t.capture.count} screenshot${t.capture.count === 1 ? '' : 's'}${t.capture.slowest ? `, slowest ${duration(t.capture.slowest.ms)}` : ''})`);
+  if (t.diffMs !== undefined) parts.push(`diff ${duration(t.diffMs)}`);
+  for (const [key, label] of EXTRA_LABELS) if (t.extras?.[key] !== undefined) parts.push(`${label} ${duration(t.extras[key]!)}`);
+  return parts.join(' · ');
+}
+
+/** timingLine as the summary of a collapsed table with one row per phase. */
+export function timingSection(t: Timings): string[] {
+  const rows: Array<[string, number, string]> = [['detect', t.detectMs, 'changed files → routes']];
+  if (t.prepare) {
+    rows.push(['base', t.prepare.base.totalMs, sideSteps(t.prepare.base).join(' · ')], ['head', t.prepare.head.totalMs, sideSteps(t.prepare.head).join(' · ')]);
+    rows.push(['prepare', t.prepare.wallMs, 'base and head at the same time (wall clock)']);
+  }
+  if (t.browserMs !== undefined) rows.push(['browser', t.browserMs, 'Chromium check and launch']);
+  if (t.capture) {
+    const slowest = t.capture.slowest ? ` · slowest ${code(t.capture.slowest.id)} (${t.capture.slowest.side}) ${duration(t.capture.slowest.ms)}` : '';
+    rows.push(['capture', t.capture.ms, `${t.capture.count} screenshots${slowest}`]);
+  }
+  if (t.diffMs !== undefined) rows.push(['diff', t.diffMs, 'pixel diffs and composites']);
+  for (const [key, label, note] of EXTRA_LABELS) if (t.extras?.[key] !== undefined) rows.push([label, t.extras[key]!, note]);
+  rows.push(['total', t.totalMs, 'wall clock until the report was written']);
+  return [`<details><summary>${timingLine(t)}</summary>`, '', '| Phase | Time | |', '|---|---|---|', ...rows.map(([phase, ms, note]) => `| ${phase} | ${duration(ms)} | ${cell(note)} |`), '', '</details>', ''];
+}
+
 function unmatchedSection(report: Report): string[] {
   const files = report.detect?.unmatched ?? [];
   if (files.length === 0) return [];
@@ -383,6 +442,7 @@ function renderOnce(report: Report, opts: RenderOptions): string {
   if (cut.length) {
     out.push(`> ⚠️ Partial captures: only the top of ${cut.map((c) => code(captureLabel(c, report.themes.length))).join(', ')} was compared (\`capture.maxHeight\`). Changes below that line are not shown.`, '');
   }
+  if (report.timings) out.push(...timingSection(report.timings));
   const footer = [`ui-diff ${report.tool.version}`, report.base.shortSha && `base ${code(report.base.shortSha)}`, report.head.shortSha && `head ${code(report.head.shortSha)}`, opts.storageNote, `generated ${report.createdAt.replace('T', ' ').replace(/\.\d+Z$/, ' UTC')}`]
     .filter(Boolean)
     .join(' · ');

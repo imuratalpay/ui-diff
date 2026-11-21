@@ -14,7 +14,7 @@ import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
 import { distinctFrames, encodeSideBySideGif, motionWarning, moveFile, recordFrames, writeFile, type RawFrame } from './motion.js';
 import { realpathIfExists } from './paths.js';
-import { autoSummary, computeStats, fingerprintDifferences, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureFingerprint, type CaptureResult, type MotionResult, type Report, type SideFingerprint, type SideSummary, type VariantGroup } from './report.js';
+import { autoSummary, computeStats, fingerprintDifferences, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureFingerprint, type CaptureResult, type MotionResult, type Report, type SideFingerprint, type SideSummary, type Timings, type VariantGroup } from './report.js';
 import { killAllServers, serverLogWarnings } from './server.js';
 import { SideManager, type Side, type SideRequest } from './sides.js';
 import { describeStep, runSteps } from './steps.js';
@@ -201,6 +201,19 @@ interface Booted {
   head: Side;
   browser: Browser;
   session: CaptureSession;
+  /** Wall-clock time of preparing base and head together. */
+  prepareMs: number;
+  browserMs: number;
+}
+
+function since(start: number): number {
+  return Math.round(performance.now() - start);
+}
+
+function slowestCapture(records: Map<string, CaptureRecord>): NonNullable<Timings['capture']>['slowest'] {
+  let slowest: CaptureRecord | undefined;
+  for (const r of records.values()) if (!slowest || r.durationMs > slowest.durationMs) slowest = r;
+  return slowest && { id: slowest.id, side: slowest.side, ms: slowest.durationMs };
 }
 
 async function selectRoutes(opts: RunOptions, detection: DetectResult | undefined): Promise<ResolvedRoute[]> {
@@ -249,10 +262,16 @@ export async function runPipeline(opts: RunOptions): Promise<RunOutcome> {
 async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome> {
   const { cfg, outDir } = opts;
   const runStart = new Date();
+  const started = performance.now();
   const warnings: string[] = [];
   const detected = await detectStage(opts, warnings);
+  const detectMs = since(started);
   const prepared = await prepareStage(opts, detected, runStart);
-  if (prepared.routes.length === 0) return writeOutputs(await emptyReport(cfg, prepared, detected, warnings), outDir, true);
+  if (prepared.routes.length === 0) {
+    const report = await emptyReport(cfg, prepared, detected, warnings);
+    report.timings = { totalMs: since(started), detectMs };
+    return writeOutputs(report, outDir, true);
+  }
 
   const sides = new SideManager(cfg, { outDir: finalDir, keepWorktrees: opts.keepWorktrees });
   const onSignal = () => {
@@ -269,9 +288,13 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
   try {
     booted = await bootStage(sides, detected, prepared, { cfg, runStart });
     const { base, head } = booted;
+    const captureStart = performance.now();
     const records = await captureStage(booted, prepared, outDir);
+    const captureMs = since(captureStart);
+    const diffStart = performance.now();
     const captures = diffStage(prepared.plans, records, { base, head, cfg, outDir });
-    const extras = await extrasStage(opts, booted, prepared, captures, records);
+    const diffMs = since(diffStart);
+    const { extras, timings: extrasTimings } = await extrasStage(opts, booted, prepared, captures, records);
     const cutWarning = truncationWarning(captures, cfg.capture.maxHeight);
     if (cutWarning) warnings.push(cutWarning);
     for (const side of [base, head]) if (side.server) warnings.push(...serverLogWarnings(side.server.logFile, side.name));
@@ -283,6 +306,15 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       ...extras,
       warnings,
       stats: computeStats(captures),
+    };
+    report.timings = {
+      totalMs: since(started),
+      detectMs,
+      prepare: { wallMs: booted.prepareMs, base: base.timings, head: head.timings },
+      browserMs: booted.browserMs,
+      capture: { ms: captureMs, count: records.size, slowest: slowestCapture(records) },
+      diffMs,
+      extras: extrasTimings,
     };
     return writeOutputs(report, outDir, false);
   } finally {
@@ -404,14 +436,20 @@ async function emptyReport(cfg: ResolvedConfig, prepared: Prepared, detected: De
 
 /** Worktrees, installs and dev servers (or preview URLs) for both sides, then the browser. */
 async function bootStage(sides: SideManager, detected: Detected, prepared: Prepared, ctx: { cfg: ResolvedConfig; runStart: Date }): Promise<Booted> {
+  const ensureStart = performance.now();
   await ensureBrowser();
+  let browserMs = since(ensureStart);
+  const prepareStart = performance.now();
   const results = await Promise.allSettled([sides.prepare(detected.baseRequest), sides.prepare(detected.headRequest)]);
+  const prepareMs = since(prepareStart);
   const failed = results.find((p): p is PromiseRejectedResult => p.status === 'rejected');
   if (failed) throw failed.reason;
   const [base, head] = results.map((p) => (p as PromiseFulfilledResult<Side>).value);
   log.info(`base: ${base.label} (${base.mode}) · head: ${head.label} (${head.mode})`);
+  const launchStart = performance.now();
   const browser = await launchBrowser();
-  return { base, head, browser, session: new CaptureSession(browser, { cfg: ctx.cfg, auth: prepared.auth, runStart: ctx.runStart }) };
+  browserMs += since(launchStart);
+  return { base, head, browser, session: new CaptureSession(browser, { cfg: ctx.cfg, auth: prepared.auth, runStart: ctx.runStart }), prepareMs, browserMs };
 }
 
 /** Screenshots (and style, axe and focus-order data) of every plan on both sides, keyed `<side>:<id>`. */
@@ -467,26 +505,45 @@ function diffStage(plans: Plan[], records: Map<string, CaptureRecord>, ctx: { ba
   return captures;
 }
 
-/** Variants, motion clips, the token audit and the accessibility delta. */
+/** Variants, motion clips, the token audit and the accessibility delta, with how long each took. */
 async function extrasStage(
   opts: RunOptions,
   booted: Booted,
   prepared: Prepared,
   captures: CaptureResult[],
   records: Map<string, CaptureRecord>,
-): Promise<Pick<Report, 'variants' | 'motion' | 'motionSkipped' | 'tokens' | 'a11y'>> {
+): Promise<{ extras: Pick<Report, 'variants' | 'motion' | 'motionSkipped' | 'tokens' | 'a11y'>; timings: NonNullable<Timings['extras']> }> {
   const { cfg, outDir } = opts;
   const { routes, viewports, themes } = prepared;
   const { session, base, head } = booted;
-  const variants = await captureVariants(session, { routes, viewports, themes, head, outDir, cfg, specs: variantSpecs(opts, routes) });
+  const timings: NonNullable<Timings['extras']> = {};
+  const sum = (pick: (r: CaptureRecord) => number | undefined) => [...records.values()].reduce((n, r) => n + (pick(r) ?? 0), 0);
+
+  let start = performance.now();
+  const specs = variantSpecs(opts, routes);
+  const variants = await captureVariants(session, { routes, viewports, themes, head, outDir, cfg, specs });
+  if (specs.size) timings.variantsMs = since(start);
   const changedRoutes = new Set(captures.filter((c) => c.status === 'changed' || c.status === 'added' || c.status === 'removed').map((c) => c.route.path));
   const motionSkipped: string[] = [];
-  const motion = prepared.motionOn
-    ? await captureMotion(session, { routes, viewports, themes, base, head, outDir, cfg, explicit: Boolean(opts.motion), all: cfg.motion.all || Boolean(opts.motionAll), changedRoutes, skipped: motionSkipped })
-    : [];
-  const tokens = prepared.tokens ? auditTokens(captures, { outDir, tokenSet: prepared.tokens.set, cfg, files: prepared.tokens.files }) : undefined;
-  const a11y = prepared.a11yOn ? a11yDelta(captures, prepared.plans, records, cfg) : undefined;
-  return { variants, motion, motionSkipped: motionSkipped.length ? motionSkipped : undefined, tokens, a11y };
+  let motion: MotionResult[] = [];
+  if (prepared.motionOn) {
+    start = performance.now();
+    motion = await captureMotion(session, { routes, viewports, themes, base, head, outDir, cfg, explicit: Boolean(opts.motion), all: cfg.motion.all || Boolean(opts.motionAll), changedRoutes, skipped: motionSkipped });
+    timings.motionMs = since(start);
+  }
+  let tokens: Report['tokens'];
+  if (prepared.tokens) {
+    start = performance.now();
+    tokens = auditTokens(captures, { outDir, tokenSet: prepared.tokens.set, cfg, files: prepared.tokens.files });
+    timings.tokensMs = since(start) + sum((r) => r.stylesMs);
+  }
+  let a11y: Report['a11y'];
+  if (prepared.a11yOn) {
+    start = performance.now();
+    a11y = a11yDelta(captures, prepared.plans, records, cfg);
+    timings.a11yMs = since(start) + sum((r) => r.a11yMs);
+  }
+  return { extras: { variants, motion, motionSkipped: motionSkipped.length ? motionSkipped : undefined, tokens, a11y }, timings };
 }
 
 function captureFingerprint(baseRec: CaptureRecord, headRec: CaptureRecord, ctx: { base: Side; head: Side; cfg: ResolvedConfig }): CaptureFingerprint | undefined {

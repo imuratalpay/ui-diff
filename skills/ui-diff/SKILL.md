@@ -89,7 +89,8 @@ each screenshot is retaken until consecutive shots match (if something keeps mov
 JavaScript timers are paused for the final shots).
 
 The JSON result has `stats`, `changed` (with image paths), `variants`, `motion`, `a11y`, `tokens`,
-`warnings`, `notCaptured` and `unmatchedFiles`. Add `--themes light,dark` when colors or tokens
+`timing` (one measured line: detect, prepare per side, capture, diff, extras; `timings` in
+`report.json` has the numbers), `warnings`, `notCaptured` and `unmatchedFiles`. Add `--themes light,dark` when colors or tokens
 changed. If it fails, the error names the step and the log in `.ui-diff/logs/` (common causes and
 fixes: `references/troubleshooting.md`); fix the cause
 (missing env var, wrong `startCommand`, auth) and rerun. Never post a one-sided result. A capture

@@ -49,6 +49,9 @@ export interface CaptureRecord {
   stylesFile?: string;
   /** The style snapshot hit capture.styleMaxElements. */
   stylesCapped?: boolean;
+  /** Time spent on the style snapshot and on axe plus focus order, within durationMs. */
+  stylesMs?: number;
+  a11yMs?: number;
   axe?: AxeViolation[];
   focusOrder?: FocusStop[];
   /** Route actions skipped because no element matched them on this side. */
@@ -390,14 +393,18 @@ export class CaptureSession {
       if (shot.unsettled) record.unsettled = shot.unsettled;
       if (shot.frozeTimers) record.frozeTimers = true;
       if (target.styles) {
+        const stylesStart = performance.now();
         const { snapshot, capped } = await collectStyles(page, { maxElements: cfg.capture.styleMaxElements, ignore: cfg.tokens.ignoreSelectors, extraColors: target.styles.extraColors });
         mkdirSync(path.dirname(target.styles.file), { recursive: true });
         writeFileSync(target.styles.file, JSON.stringify(snapshot));
         record.stylesFile = target.styles.file;
         if (capped) record.stylesCapped = true;
+        record.stylesMs = Math.round(performance.now() - stylesStart);
       }
+      const a11yStart = performance.now();
       if (target.a11y) record.axe = await runAxe(page, { tags: cfg.a11y.tags, rules: cfg.a11y.rules });
       if (target.focusOrder) record.focusOrder = await collectFocusOrder(page, cfg.a11y.maxTabStops);
+      if (target.a11y || target.focusOrder) record.a11yMs = Math.round(performance.now() - a11yStart);
       record.ok = true;
     } catch (error) {
       record.error = redact((error as Error).message.split('\n')[0]);

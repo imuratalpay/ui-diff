@@ -11,7 +11,7 @@ import { git, repoRoot } from './git.js';
 import { createGhClient, findStickyComment, getPullRequest, prState, publishDecision, repoVisibility, uploadGuard, upsertStickyComment } from './github.js';
 import type { RemoteInfo } from './git.js';
 import { configureLog, log, notesAfter, redact, UiDiffError, writeRedacted } from './log.js';
-import { noUiChangeComment, referencedImages, renderComment } from './markdown.js';
+import { noUiChangeComment, referencedImages, renderComment, timingLine } from './markdown.js';
 import { lastRunFailure, runPipeline } from './pipeline.js';
 import { encodePath, linkBaseFor, listAssetPrs, publishToBranch, pruneBranch, resolveRemote } from './publish.js';
 import { noUiChange, parseReport, type Report } from './report.js';
@@ -204,6 +204,7 @@ async function cmdRun(values: Values): Promise<void> {
     motionSkipped: r.motionSkipped,
     a11y: r.a11y ? { new: r.a11y.added.length, fixed: r.a11y.fixed.length, focusChanges: r.a11y.focus.filter((f) => f.delta.changed).length } : undefined,
     tokens: r.tokens ? { new: r.tokens.findings.filter((f) => f.isNew).length, existing: r.tokens.findings.filter((f) => !f.isNew).length, notAudited: r.tokens.skipped } : undefined,
+    timing: r.timings ? timingLine(r.timings) : undefined,
     warnings: r.warnings,
     captureWarnings: r.captures.filter((c) => c.warnings.length).map((c) => ({ id: c.id, warnings: c.warnings })),
     notCaptured: [...(r.detect?.skippedRoutes ?? []), ...(r.detect?.needsExample.map((n) => n.route) ?? [])],

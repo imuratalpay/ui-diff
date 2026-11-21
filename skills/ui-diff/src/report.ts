@@ -112,6 +112,36 @@ export interface A11yReport {
   errors: string[];
 }
 
+/** How a side got its dependencies: symlinked or hard-link copy of yours, its own install, the other side's install, or none needed. */
+export type InstallKind = 'linked' | 'copied' | 'installed' | 'shared' | 'none';
+
+/** Measured durations of one side's preparation (milliseconds). */
+export interface SideTiming {
+  mode: 'worktree' | 'url';
+  /** Worktree checkout and copied files. */
+  checkoutMs?: number;
+  install?: { kind: InstallKind; ms: number; retried?: boolean };
+  buildMs?: number;
+  /** From starting the server until it answered. */
+  bootMs?: number;
+  totalMs: number;
+}
+
+/** Measured wall-clock durations of a run (milliseconds); nothing here is estimated. */
+export interface Timings {
+  /** From the start of the run until the report was assembled. */
+  totalMs: number;
+  detectMs: number;
+  /** Base and head are prepared at the same time; wallMs is how long that took. */
+  prepare?: { wallMs: number; base: SideTiming; head: SideTiming };
+  /** Making sure Chromium is installed (a download on the first run) and launching it. */
+  browserMs?: number;
+  capture?: { ms: number; count: number; slowest?: { id: string; side: 'base' | 'head'; ms: number } };
+  diffMs?: number;
+  /** a11y and tokens include the axe runs and style snapshots taken during capture. */
+  extras?: { variantsMs?: number; motionMs?: number; a11yMs?: number; tokensMs?: number };
+}
+
 export interface SideSummary {
   label: string;
   mode: 'worktree' | 'url';
@@ -144,6 +174,7 @@ export interface Report {
   a11y?: A11yReport;
   /** Set when nothing was captured: why (see `notCheckedReason`). */
   notChecked?: string;
+  timings?: Timings;
   warnings: string[];
   stats: { captures: number; changed: number; unchanged: number; added: number; removed: number; errors: number };
 }

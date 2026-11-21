@@ -7,6 +7,7 @@ import { assertSafePreviewUrl, sanitizeUrl } from './auth.js';
 import type { ResolvedConfig } from './config.js';
 import { addWorktree, removeWorktree, revParse, shortSha, snapshotWorkingTree, untrackedFiles } from './git.js';
 import { log, UiDiffError } from './log.js';
+import type { InstallKind, SideTiming } from './report.js';
 import { fillPort, getFreePort, runLogged, ServerStartError, startServer, type RunningServer } from './server.js';
 
 export type SideName = 'base' | 'head';
@@ -24,6 +25,7 @@ export interface Side {
   dir?: string;
   includesUncommitted?: boolean;
   server?: RunningServer;
+  timings: SideTiming;
 }
 
 export interface SideRequest {
@@ -241,7 +243,7 @@ export class SideManager {
     url.search = '';
     url.hash = '';
     const root = url.toString().replace(/\/$/, '');
-    return { name: request.name, label: sanitizeUrl(root), mode: 'url', url: root };
+    return { name: request.name, label: sanitizeUrl(root), mode: 'url', url: root, timings: { mode: 'url', totalMs: 0 } };
   }
 
   private async fromWorktree(request: SideRequest): Promise<Side> {
@@ -251,6 +253,8 @@ export class SideManager {
         hint: 'Add "startCommand" (with {port}) to ui-diff.config.json, or pass --base-url/--head-url for deployed previews. `ui-diff init` can suggest one.',
       });
     }
+    const started = performance.now();
+    const since = (t: number) => Math.round(performance.now() - t);
     let sha: string;
     let includesUncommitted = false;
     if (request.workingTree) {
@@ -286,6 +290,7 @@ export class SideManager {
       }
     }
 
+    const checkoutMs = since(started);
     const logDir = path.join(this.opts.outDir, 'logs');
     const env = { ...process.env, ...cfg.env };
     const appDir = path.join(dir, cfg.dirRel, cfg.cwd);
@@ -295,6 +300,8 @@ export class SideManager {
       });
     }
     const plan = planInstall(cfg, dir);
+    const installStart = performance.now();
+    let installKind: InstallKind = plan.kind === 'link' ? 'linked' : plan.kind === 'copy' ? 'copied' : plan.kind === 'command' ? 'installed' : 'none';
     let linked = plan.kind === 'link' || plan.kind === 'copy';
     if (plan.kind === 'link') {
       log.step(`${request.name}: reusing installed dependencies (${plan.reason})`);
@@ -312,11 +319,16 @@ export class SideManager {
         log.step(`${request.name}: reusing dependencies installed for the other side (same lockfile)`);
         (plan.share === 'copy' ? copyAll : linkAll)(cfg, dir, plan.dir!, from);
         linked = true;
+        installKind = 'shared';
       }
     }
+    let installMs = since(installStart);
+    let buildMs: number | undefined;
     if (cfg.buildCommand) {
       log.step(`${request.name}: building`);
+      const buildStart = performance.now();
       await runLogged(cfg.buildCommand, { cwd: appDir, env, logFile: path.join(logDir, `build-${request.name}.log`), label: `${request.name} build` });
+      buildMs = since(buildStart);
     }
 
     const start = async (linkedDeps: boolean): Promise<RunningServer> => {
@@ -337,12 +349,17 @@ export class SideManager {
     };
     log.step(`${request.name}: starting server`);
     let server: RunningServer;
+    let retried = false;
+    let failedBootMs = 0;
+    let bootStart = performance.now();
     try {
       server = await start(linked);
     } catch (error) {
       if (!linked || (error instanceof ServerStartError && error.reason === 'unreachable')) throw error;
       log.warn(`${request.name}: server failed with linked dependencies, retrying with a clean install`);
+      failedBootMs = since(bootStart);
       unlinkAll(dir, cfg, plan.dir!);
+      const retryStart = performance.now();
       const fallback = planInstall({ ...cfg, install: 'auto' }, dir);
       const lock = LOCKFILES.find((l) => existsSync(path.join(plan.dir!, l.file)));
       await runLogged(lock?.command ?? fallback.command ?? 'npm install', {
@@ -351,8 +368,13 @@ export class SideManager {
         logFile: path.join(logDir, `install-${request.name}.log`),
         label: `${request.name} install`,
       });
+      installMs += since(retryStart);
+      installKind = 'installed';
+      retried = true;
+      bootStart = performance.now();
       server = await start(false);
     }
+    const bootMs = failedBootMs + since(bootStart);
     const short = await shortSha(sha, cfg.repoRoot);
     const display = request.workingTree ? 'working tree' : (request.displayRef ?? request.ref);
     const plain = !display || display === sha || display === short || /^[0-9a-f]{7,40}$/i.test(display);
@@ -367,6 +389,7 @@ export class SideManager {
       dir,
       includesUncommitted,
       server,
+      timings: { mode: 'worktree', checkoutMs, install: { kind: installKind, ms: installMs, ...(retried ? { retried } : {}) }, ...(buildMs !== undefined ? { buildMs } : {}), bootMs, totalMs: since(started) },
     };
   }
 
