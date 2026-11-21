@@ -282,6 +282,7 @@ function settingsRows(report: Report, side: 'base' | 'head'): Array<[string, str
     ['Frozen', frozen],
     ['Media', media],
     ['Test data', distinct(fps.map((f) => f.data))],
+    ['Base cache', distinct(fps.filter((f) => f.cache).map((f) => `${f.cache!.hit ? 'reused' : 'captured now'} (${code(f.cache!.key)})`))],
     ['User agent', userAgents(captures.map((c) => [c.viewport, c.fingerprint![side]!.browser.userAgent]))],
   ];
 }
@@ -293,8 +294,8 @@ export function captureSettingsSection(report: Report): string[] {
   if (!base && !head) return [];
   const rows = (base ?? head)!.map(([label], i) => [label, base?.[i][1] ?? '—', head?.[i][1] ?? '—'] as const);
   const table = rows
-    .filter(([label]) => label !== 'User agent')
-    .map(([label, b, h]) => `| ${label} | ${cell(b)} | ${label !== 'Commit' && h === b ? 'same' : cell(h)} |`);
+    .filter(([label, b, h]) => label !== 'User agent' && (b || h))
+    .map(([label, b, h]) => `| ${label} | ${cell(b) || '—'} | ${label !== 'Commit' && h === b ? 'same' : cell(h) || '—'} |`);
   const [, uaBase, uaHead] = rows.find(([label]) => label === 'User agent')!;
   const ua = uaBase === uaHead ? `User agent: ${uaBase}` : `User agent: base ${uaBase}; head ${uaHead}`;
   return ['<details><summary>Capture settings</summary>', '', '| | Base | Head |', '|---|---|---|', ...table, '', `<sub>${ua}</sub>`, '', '</details>', ''];
@@ -310,6 +311,7 @@ export function duration(ms: number): string {
 
 function sideSteps(t: SideTiming): string[] {
   if (t.mode === 'url') return ['deployed preview'];
+  if (t.cached) return ['cached: captures restored from the base cache, nothing built or started'];
   return [
     t.checkoutMs !== undefined ? `checkout ${duration(t.checkoutMs)}` : '',
     t.install ? `install ${duration(t.install.ms)} (${t.install.kind}${t.install.retried ? ', after a failed start' : ''})` : '',
@@ -320,6 +322,7 @@ function sideSteps(t: SideTiming): string[] {
 
 function sideBrief(t: SideTiming): string {
   if (t.mode === 'url') return 'deployed preview';
+  if (t.cached) return `cached ${duration(t.totalMs)}`;
   return [t.install && `${t.install.kind} ${duration(t.install.ms)}`, t.buildMs !== undefined && `build ${duration(t.buildMs)}`, t.bootMs !== undefined && `boot ${duration(t.bootMs)}`].filter(Boolean).join(', ');
 }
 

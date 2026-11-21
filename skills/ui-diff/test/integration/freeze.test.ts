@@ -110,7 +110,9 @@ describe('input freeze', { timeout: 300_000, skip: !FONT && 'no TrueType font fo
       assert.match(side.browser.version, /^\d+\.\d+/);
       assert.match(side.browser.userAgent, /Chrome\//);
       assert.deepEqual(side.fonts, { loaded: ['Late', 'LateJs'], failed: ['Gone'], pending: [] });
-      assert.deepEqual(side.freeze, { clock: report.createdAt, seed: 795556381, animations: true, fonts: true });
+      // Frozen at this run's start, or, when base came from the base cache, at the instant it was captured, on both sides.
+      assert.deepEqual(side.freeze, { clock: report.baseCache?.hit ? fp.base!.freeze.clock : report.createdAt, seed: 795556381, animations: true, fonts: true });
+      assert.equal(side.freeze.clock, fp.head!.freeze.clock);
       assert.deepEqual(side.media, { reducedMotion: 'reduce', colorScheme: 'light', locale: 'en-US', timezone: 'UTC' });
       assert.equal(side.data, 'not declared');
     }

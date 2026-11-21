@@ -132,6 +132,16 @@ describe('example CI workflow: browser', () => {
   });
 });
 
+describe('example CI workflow: base cache', () => {
+  it('restores and saves .ui-diff/cache under the key ui-diff computes, before capturing', () => {
+    const capture = job('ui-diff');
+    assert.match(capture, /- name: Base cache key\n\s+id: base-cache\n\s+run: \|\n\s+node "\$SKILL\/bin\/ui-diff\.mjs" cache-key/);
+    assert.match(capture, /- uses: actions\/cache@v4\n\s+with:\n\s+path: \.ui-diff\/cache\n\s+key: \$\{\{ steps\.base-cache\.outputs\.key \}\}/);
+    assert.ok(capture.indexOf('Base cache key') > capture.indexOf('playwright install'), 'the key needs the browser version');
+    assert.ok(capture.indexOf('Base cache key') < capture.indexOf('- name: Capture and diff'));
+  });
+});
+
 describe('example CI workflow', () => {
   it('installs app dependencies with the package manager of the lockfile', () => {
     assert.deepEqual(detect('pnpm-lock.yaml'), { name: 'pnpm', install: 'pnpm install --frozen-lockfile' });

@@ -13,7 +13,7 @@ import { createGhClient, findStickyComment, getPullRequest, prState, publishDeci
 import type { RemoteInfo } from './git.js';
 import { configureLog, log, notesAfter, redact, UiDiffError, writeRedacted } from './log.js';
 import { noUiChangeComment, referencedImages, renderComment, timingLine } from './markdown.js';
-import { lastRunFailure, runPipeline } from './pipeline.js';
+import { baseCacheKeyFor, lastRunFailure, runPipeline } from './pipeline.js';
 import { encodePath, linkBaseFor, listAssetPrs, publishToBranch, pruneBranch, resolveRemote } from './publish.js';
 import { noUiChange, parseReport, type Report } from './report.js';
 import { killAllServers } from './server.js';
@@ -29,6 +29,7 @@ Commands
   doctor      Check git, gh, Playwright and the config
   detect      List changed UI files and the routes they affect
   run         Capture base and head, diff them and write .ui-diff/report.json
+  cache-key   Print the base cache key a run would use (for actions/cache)
   render      Render the PR comment locally (with your summary) without uploading anything
   publish     Upload images to the private assets branch and create/update the sticky PR comment
   prune       Remove images of closed (or given) PRs from the assets branch
@@ -55,6 +56,7 @@ detect / run
                          (comma-separated; "auto" finds them)
   --a11y                 Accessibility delta: new and fixed axe issues, focus order
   --keep-worktrees       Keep the temporary worktrees for inspection
+  --no-cache             Capture base again instead of reusing it from the base cache (.ui-diff/cache)
 
 render
   --summary <file>       UX summary markdown (default: .ui-diff/summary.md when present)
@@ -112,6 +114,7 @@ function parse(argv: string[]): { command: string; values: Values } {
       'dry-run': { type: 'boolean' },
       'no-upload': { type: 'boolean' },
       'no-comment': { type: 'boolean' },
+      'no-cache': { type: 'boolean' },
       'allow-public-repo': { type: 'boolean' },
       'assume-private': { type: 'boolean' },
       remote: { type: 'string' },
@@ -158,6 +161,13 @@ async function prRefs(values: Values, root: string): Promise<{ base?: string; he
   return { base: (values.base as string | undefined) ?? `origin/${pr.baseRefName}`, head: (values.head as string | undefined) ?? pr.headRefOid, pr: pr.number };
 }
 
+async function cmdCacheKey(values: Values): Promise<void> {
+  const { root, cfg, outDir } = await context(values);
+  const refs = await prRefs(values, root);
+  const key = await baseCacheKeyFor({ cfg, outDir, base: refs.base, head: refs.head, baseUrl: values['base-url'] as string | undefined, headUrl: values['head-url'] as string | undefined, routes: list(values.routes), allRoutes: Boolean(values['all-routes']), viewports: list(values.viewports), themes: list(values.themes), tokens: list(values.tokens), a11y: Boolean(values.a11y) });
+  print(key ? { ...key, cacheDir: path.relative(process.cwd(), path.join(root, '.ui-diff', 'cache')) || '.' } : { key: null, reason: 'the base cache does not apply: nothing to capture, or base is a deployed preview' });
+}
+
 async function cmdDetect(values: Values): Promise<void> {
   const { root, cfg } = await context(values);
   const refs = await prRefs(values, root);
@@ -185,6 +195,7 @@ async function cmdRun(values: Values): Promise<void> {
     tokens: list(values.tokens),
     a11y: Boolean(values.a11y),
     keepWorktrees: Boolean(values['keep-worktrees']),
+    cache: !values['no-cache'],
   });
   const r = outcome.report;
   print({
@@ -207,6 +218,7 @@ async function cmdRun(values: Values): Promise<void> {
     a11y: r.a11y ? { new: r.a11y.added.length, fixed: r.a11y.fixed.length, focusChanges: r.a11y.focus.filter((f) => f.delta.changed).length } : undefined,
     tokens: r.tokens ? { new: r.tokens.findings.filter((f) => f.isNew).length, existing: r.tokens.findings.filter((f) => !f.isNew).length, notAudited: r.tokens.skipped } : undefined,
     timing: r.timings ? timingLine(r.timings) : undefined,
+    baseCache: r.baseCache,
     warnings: r.warnings,
     captureWarnings: r.captures.filter((c) => c.warnings.length).map((c) => ({ id: c.id, warnings: c.warnings })),
     notCaptured: [...(r.detect?.skippedRoutes ?? []), ...(r.detect?.needsExample.map((n) => n.route) ?? [])],
@@ -580,7 +592,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       process.stdout.write(`${VERSION}\n`);
       return 0;
     }
-    const commands: Record<string, (v: Values) => Promise<void>> = { init: cmdInit, doctor: cmdDoctor, detect: cmdDetect, run: cmdRun, render: cmdRender, publish: cmdPublish, prune: cmdPrune };
+    const commands: Record<string, (v: Values) => Promise<void>> = { init: cmdInit, doctor: cmdDoctor, detect: cmdDetect, 'cache-key': cmdCacheKey, run: cmdRun, render: cmdRender, publish: cmdPublish, prune: cmdPrune };
     const fn = commands[command];
     if (!fn) throw new UiDiffError(`Unknown command "${command}"`, { hint: 'Run `ui-diff help`.' });
     await fn(parsed.values);

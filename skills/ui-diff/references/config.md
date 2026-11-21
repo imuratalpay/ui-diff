@@ -73,6 +73,29 @@ the channel name, or `custom executable`; never the path).
 Worktrees live in the system temp directory and are removed afterwards (`--keep-worktrees` keeps
 them). Each server runs in its own process group; only those processes are stopped.
 
+## Base cache
+
+Base captures (screenshots, element maps, style snapshots and the base side of the report data)
+are cached in `.ui-diff/cache/` (kept out of git through `.git/info/exclude`, like the rest of
+`.ui-diff/`; add `.ui-diff/` to `.gitignore` if you prefer). The key is
+
+```
+base-<first 12 hex of the base commit>-<16 hex of sha256(base commit, capture config hash, browser and version, ui-diff version)>
+```
+
+where the capture config hash covers the capture plan (routes with their actions, masks, waits,
+viewports, themes, a11y and focus-order flags), `capture`, `freeze`, the style and token settings
+and how the app is built and started (`startCommand`, `buildCommand`,
+`install`, `cwd`, `baseUrl`, `env` and the contents of `copyFiles`). When the key matches a complete
+entry, base is not checked out, installed, built, started or captured: the timing line says `base:
+cached` and the capture settings say `Base cache: reused`. Head is then frozen at the instant the
+cached base was, so clocks match. Any mismatch, a failed base capture or a missing file means a
+full recapture; an entry is never partly reused. A motion clip still needs the base app, so on a
+hit it is started only when a clip is recorded. `--no-cache` captures base again (and stores the
+result); `ui-diff cache-key` prints the key a run would use, which the example CI workflow passes
+to `actions/cache`. The ten most recent entries are kept. Deployed previews (`--base-url`) are not
+cached.
+
 ## Routes and detection
 
 `routes` entries are a path string or an object:

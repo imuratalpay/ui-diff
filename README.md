@@ -57,7 +57,8 @@ If something fails, see [Troubleshooting](#troubleshooting).
    dependency changes are listed as not checked. Unplaceable files and dynamic routes are listed
    for the agent to resolve.
 2. **Runs base and head** in temporary git worktrees (dependencies linked or installed, each app
-   on a free port in its own process group), or uses existing preview URLs.
+   on a free port in its own process group), or uses existing preview URLs. Base captures are
+   cached in `.ui-diff/cache/` and reused while the base commit and capture settings stay the same.
 3. **Captures with Playwright, deterministically**: the same inputs on both sides (frozen clock,
    seeded `Math.random`/`crypto`, animations and caret stopped, late web fonts awaited), masked selectors, hidden
    scrollbars and dev overlays, scroll reset, service workers blocked, and each shot retaken until

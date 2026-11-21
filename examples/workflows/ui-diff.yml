@@ -144,6 +144,21 @@ jobs:
         if: env.UI_DIFF_BROWSER_CHANNEL == '' && steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx --prefix "$SKILL" playwright install-deps chromium
 
+      # Base captures are reused across runs when nothing that shapes them changed: the key covers
+      # the base (merge-base) commit, the capture plan and settings, the browser and its version and
+      # the ui-diff version. A hit skips building, starting and capturing base.
+      - name: Base cache key
+        id: base-cache
+        run: |
+          node "$SKILL/bin/ui-diff.mjs" cache-key --quiet \
+            --base "origin/${{ github.base_ref }}" --head "${{ github.event.pull_request.head.sha }}" > "$RUNNER_TEMP/cache-key.json"
+          echo "key=ui-diff-$(jq -r .key "$RUNNER_TEMP/cache-key.json")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: .ui-diff/cache
+          key: ${{ steps.base-cache.outputs.key }}
+
       - name: Capture and diff
         run: >
           node "$SKILL/bin/ui-diff.mjs" run

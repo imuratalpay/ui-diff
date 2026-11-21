@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import type { Browser } from 'playwright';
 import { diffFocusOrder, diffViolations, type A11yIssue } from './a11y.js';
+import { baseCacheKey, restoreBaseCache, storeBaseCache, type BaseCacheEntry, type BaseCacheKey } from './cache.js';
 import { resolveAuth, sanitizeUrl, type ResolvedAuth } from './auth.js';
-import { CaptureSession, ensureBrowser, launchBrowser, resolveBrowser, routeUrl, type CaptureRecord, type CaptureTarget } from './capture.js';
+import { CaptureSession, ensureBrowser, frozenTime, launchBrowser, resolveBrowser, routeUrl, type CaptureRecord, type CaptureTarget } from './capture.js';
 import { parseVariantFlag, pickThemes, pickViewports, resolveRoute, type ResolvedConfig, type ResolvedRoute, type Step, type ThemeConfig, type VariantSpec, type ViewportConfig } from './config.js';
 import { detectChanges, resolveBaseRef, type DetectResult } from './detect.js';
 import { composeCompare, diffPngs, focusBoxes } from './diff.js';
@@ -15,9 +17,9 @@ import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
 import { distinctFrames, encodeSideBySideGif, isAnimationPackage, motionWarning, recordFrames, stepTokens, touchesAnimation, writeFile, type RawFrame } from './motion.js';
 import { realpathIfExists } from './paths.js';
-import { autoSummary, computeStats, fingerprintDifferences, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureFingerprint, type CaptureResult, type MotionResult, type Report, type SideFingerprint, type SideSummary, type Timings, type VariantGroup } from './report.js';
+import { autoSummary, computeStats, fingerprintDifferences, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureFingerprint, type CaptureResult, type MotionResult, type Report, type BaseCacheInfo, type SideFingerprint, type SideSummary, type Timings, type VariantGroup } from './report.js';
 import { killAllServers, serverLogWarnings } from './server.js';
-import { SideManager, type Side, type SideRequest } from './sides.js';
+import { SideManager, sideLabel, type Side, type SideRequest } from './sides.js';
 import { describeStep } from './steps.js';
 import { styleCapWarning } from './styles.js';
 import { aggregateFindings, auditSnapshot, buildTokenSet, detectTokenFiles, findingKeys, hasCategory, loadTokenFiles, tokenColorStrings, type StyleSnapshot, type TokenSet } from './tokens.js';
@@ -44,6 +46,10 @@ export interface RunOptions {
   keepWorktrees?: boolean;
   /** Internal: record computed styles of every capture even without the token audit (which always records them). */
   collectStyles?: boolean;
+  /** Reuse base captures from the base cache when the key matches (default true; --no-cache sets false). */
+  cache?: boolean;
+  /** Where base captures are cached (default <repo>/.ui-diff/cache). */
+  cacheDir?: string;
 }
 
 export interface RunOutcome {
@@ -206,6 +212,10 @@ interface Booted {
   /** Wall-clock time of preparing base and head together. */
   prepareMs: number;
   browserMs: number;
+  /** Set when the base cache applies: the key, and the reused entry on a hit. */
+  cache?: { key: BaseCacheKey; entry?: BaseCacheEntry; dir: string };
+  /** The base app, started on demand when its captures came from the cache (motion clips replay it). */
+  liveBase: () => Promise<Side>;
 }
 
 function since(start: number): number {
@@ -247,6 +257,7 @@ function variantSpecs(opts: RunOptions, routes: ResolvedRoute[]): Map<string, Va
 export async function runPipeline(opts: RunOptions): Promise<RunOutcome> {
   const stage = stageOutDir(opts.outDir);
   await excludeFromGit(opts.cfg.repoRoot, opts.outDir);
+  await excludeFromGit(opts.cfg.repoRoot, opts.cacheDir ?? path.join(opts.cfg.repoRoot, '.ui-diff', 'cache'));
   try {
     const outcome = await runStaged({ ...opts, outDir: stage }, opts.outDir);
     commitOutDir(stage, opts.outDir);
@@ -257,6 +268,24 @@ export async function runPipeline(opts: RunOptions): Promise<RunOutcome> {
     const kept = markRunFailed(opts.outDir, error);
     if (kept) noteAfterError(error, kept);
     throw error;
+  }
+}
+
+/**
+ * The base cache key a run with these options would use, without building or capturing anything
+ * (detection, the capture plan and the browser version). Undefined when the base cache does not
+ * apply: nothing to capture, or base is a deployed preview.
+ */
+export async function baseCacheKeyFor(opts: RunOptions): Promise<BaseCacheKey | undefined> {
+  const detected = await detectStage(opts, []);
+  const prepared = await prepareStage(opts, detected, new Date());
+  if (prepared.routes.length === 0 || !detected.baseRequest.ref) return undefined;
+  const choice = resolveBrowser(opts.cfg.browser.channel);
+  const browser = await launchBrowser(choice);
+  try {
+    return baseCacheKey({ baseSha: detected.baseRequest.ref, config: baseCaptureConfig(opts.cfg, prepared), browser: { name: choice.label, version: browser.version() }, uiDiffVersion: VERSION });
+  } finally {
+    await browser.close().catch(() => undefined);
   }
 }
 
@@ -288,13 +317,16 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
   process.once('SIGTERM', onSignal);
   let booted: Booted | undefined;
   try {
-    booted = await bootStage(sides, detected, prepared, { cfg, runStart });
+    booted = await bootStage(sides, detected, prepared, { cfg, runStart, opts, outDir });
     const { base, head } = booted;
     const captureStart = performance.now();
     const records = await captureStage(booted, prepared, outDir);
     const captureMs = since(captureStart);
+    const baseCache = booted.cache ? storeOrReport(booted.cache, base, records, cfg, runStart) : undefined;
+    // Records restored from the base cache were not captured by this run.
+    const taken = new Map([...records].filter(([, r]) => !(booted!.cache?.entry && r.side === 'base')));
     const diffStart = performance.now();
-    const captures = diffStage(prepared.plans, records, { base, head, cfg, outDir });
+    const captures = diffStage(prepared.plans, records, { base, head, cfg, outDir, cache: baseCache });
     const diffMs = since(diffStart);
     const styleDiffStart = performance.now();
     if (cfg.styleDiff.enabled) styleDiffStage(captures, records, cfg);
@@ -309,6 +341,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       head: sideSummary(head),
       captures,
       ...extras,
+      ...(baseCache ? { baseCache } : {}),
       warnings,
       stats: computeStats(captures),
     };
@@ -317,7 +350,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       detectMs,
       prepare: { wallMs: booted.prepareMs, base: base.timings, head: head.timings },
       browserMs: booted.browserMs,
-      capture: { ms: captureMs, count: records.size, slowest: slowestCapture(records) },
+      capture: { ms: captureMs, count: taken.size, slowest: slowestCapture(taken) },
       diffMs,
       extras: { ...extrasTimings, ...(cfg.styleDiff.enabled ? { styleDiffMs, elementMapMs: [...records.values()].reduce((n, r) => n + (r.stylesMs ?? 0), 0) } : {}) },
     };
@@ -448,23 +481,112 @@ async function emptyReport(cfg: ResolvedConfig, prepared: Prepared, detected: De
 }
 
 /** Worktrees, installs and dev servers (or preview URLs) for both sides, then the browser. */
-async function bootStage(sides: SideManager, detected: Detected, prepared: Prepared, ctx: { cfg: ResolvedConfig; runStart: Date }): Promise<Booted> {
+async function bootStage(
+  sides: SideManager,
+  detected: Detected,
+  prepared: Prepared,
+  ctx: { cfg: ResolvedConfig; runStart: Date; opts: RunOptions; outDir: string },
+): Promise<Booted> {
   const ensureStart = performance.now();
   const choice = resolveBrowser(ctx.cfg.browser.channel);
   await ensureBrowser(choice);
-  let browserMs = since(ensureStart);
+  const browser = await launchBrowser(choice);
+  const browserMs = since(ensureStart);
+  log.info(`browser: ${choice.label} ${browser.version()}`);
+  try {
+    return await bootSides(sides, detected, prepared, { ...ctx, browser, browserLabel: choice.label, browserMs });
+  } catch (error) {
+    await browser.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+async function bootSides(
+  sides: SideManager,
+  detected: Detected,
+  prepared: Prepared,
+  ctx: { cfg: ResolvedConfig; runStart: Date; opts: RunOptions; outDir: string; browser: Browser; browserLabel: string; browserMs: number },
+): Promise<Booted> {
+  const { browser, browserMs } = ctx;
+  const choice = { label: ctx.browserLabel };
+  let cache: Booted['cache'];
+  if (detected.baseRequest.ref) {
+    const dir = ctx.opts.cacheDir ?? path.join(ctx.cfg.repoRoot, '.ui-diff', 'cache');
+    const key = baseCacheKey({ baseSha: detected.baseRequest.ref, config: baseCaptureConfig(ctx.cfg, prepared), browser: { name: choice.label, version: browser.version() }, uiDiffVersion: VERSION });
+    let entry = ctx.opts.cache === false ? undefined : restoreBaseCache(dir, key.key, ctx.outDir);
+    if (entry && !prepared.plans.every((p) => entry!.records.some((r) => r.id === p.id))) entry = undefined;
+    cache = { key, entry, dir };
+    log.info(`base cache: ${entry ? 'hit' : ctx.opts.cache === false ? 'skipped (--no-cache)' : 'miss'} (${key.key})`);
+  }
+
   const prepareStart = performance.now();
-  const results = await Promise.allSettled([sides.prepare(detected.baseRequest), sides.prepare(detected.headRequest)]);
+  const cached = cache?.entry;
+  const results = await Promise.allSettled([cached ? Promise.resolve(cachedBase(detected.baseRequest, cached, prepareStart)) : sides.prepare(detected.baseRequest), sides.prepare(detected.headRequest)]);
   const prepareMs = since(prepareStart);
   const failed = results.find((p): p is PromiseRejectedResult => p.status === 'rejected');
   if (failed) throw failed.reason;
   const [base, head] = results.map((p) => (p as PromiseFulfilledResult<Side>).value);
-  log.info(`base: ${base.label} (${base.mode}) · head: ${head.label} (${head.mode})`);
-  const launchStart = performance.now();
-  const browser = await launchBrowser(choice);
-  browserMs += since(launchStart);
-  log.info(`browser: ${choice.label} ${browser.version()}`);
-  return { base, head, browser, session: new CaptureSession(browser, { cfg: ctx.cfg, auth: prepared.auth, runStart: ctx.runStart, browserLabel: choice.label }), prepareMs, browserMs };
+  log.info(`base: ${base.label} (${cached ? 'cached' : base.mode}) · head: ${head.label} (${head.mode})`);
+  // Head is frozen at the instant the reused base captures were, so clocks match on both sides.
+  const frozenStart = cached?.frozenAt ? new Date(cached.frozenAt) : ctx.runStart;
+  let live: Promise<Side> | undefined;
+  return {
+    base,
+    head,
+    browser,
+    session: new CaptureSession(browser, { cfg: ctx.cfg, auth: prepared.auth, runStart: frozenStart, browserLabel: choice.label }),
+    prepareMs,
+    browserMs,
+    cache,
+    liveBase: () => (cached ? (live ??= sides.prepare(detected.baseRequest)) : Promise.resolve(base)),
+  };
+}
+
+/** The base side when its captures come from the cache: nothing is checked out or started. */
+function cachedBase(request: SideRequest, entry: BaseCacheEntry, started: number): Side {
+  return {
+    name: 'base',
+    label: sideLabel(request, entry.side.sha, entry.side.shortSha),
+    mode: 'worktree',
+    sha: entry.side.sha,
+    shortSha: entry.side.shortSha,
+    ref: request.ref,
+    url: '',
+    timings: { mode: 'worktree', cached: true, totalMs: since(started) },
+  };
+}
+
+/** Everything besides the base commit and the browser that changes what base captures look like. */
+function baseCaptureConfig(cfg: ResolvedConfig, prepared: Prepared): unknown {
+  const copied = cfg.copyFiles.map((f) => {
+    const file = path.join(cfg.dir, f);
+    return [f, existsSync(file) ? createHash('sha256').update(readFileSync(file)).digest('hex') : null];
+  });
+  return {
+    plans: prepared.plans.map((p) => ({ id: p.id, route: p.route.path, actions: p.route.actions, waitFor: p.route.waitFor, mask: p.route.mask, hide: p.route.hide, fullPage: p.route.fullPage, viewport: p.viewport, theme: p.theme, a11y: p.a11y, focus: p.focus })),
+    capture: cfg.capture,
+    freeze: cfg.freeze,
+    styles: prepared.stylesOn,
+    tokens: prepared.tokens ? { colors: tokenColorStrings(prepared.tokens.set), ignore: cfg.tokens.ignoreSelectors } : null,
+    a11y: { tags: cfg.a11y.tags, rules: cfg.a11y.rules, maxTabStops: cfg.a11y.maxTabStops },
+    app: { startCommand: cfg.startCommand, buildCommand: cfg.buildCommand, install: cfg.install, dirRel: cfg.dirRel, cwd: cfg.cwd, baseUrl: cfg.baseUrl, readyPath: cfg.readyPath, env: cfg.env, copied },
+  };
+}
+
+/** After capture: store a fresh base capture set on a miss; the cache info for the report either way. */
+function storeOrReport(cache: NonNullable<Booted['cache']>, base: Side, records: Map<string, CaptureRecord>, cfg: ResolvedConfig, runStart: Date): BaseCacheInfo {
+  const info: BaseCacheInfo = { key: cache.key.key, hit: Boolean(cache.entry), configHash: cache.key.configHash, browser: cache.key.browser, uiDiffVersion: cache.key.uiDiffVersion };
+  if (cache.entry) return { ...info, capturedAt: cache.entry.createdAt };
+  const baseRecords = [...records.values()].filter((r) => r.side === 'base');
+  const stored = storeBaseCache(cache.dir, {
+    key: cache.key.key,
+    createdAt: new Date().toISOString(),
+    frozenAt: frozenTime(cfg, runStart)?.toISOString(),
+    side: { sha: base.sha!, shortSha: base.shortSha! },
+    records: baseRecords,
+  });
+  log.info(stored ? `base cache: stored ${cache.key.key}` : 'base cache: not stored (a base capture failed)');
+  return { ...info, stored };
 }
 
 /** Screenshots (and style, axe and focus-order data) of every plan on both sides, keyed `<side>:<id>`. */
@@ -473,8 +595,11 @@ async function captureStage(booted: Booted, prepared: Prepared, outDir: string):
   const records = new Map<string, CaptureRecord>();
   const extraColors = tokens ? tokenColorStrings(tokens.set) : [];
   let n = 0;
+  const cached = booted.cache?.entry;
+  for (const record of cached?.records ?? []) records.set(`base:${record.id}`, record);
+  const sides = cached ? [booted.head] : [booted.base, booted.head];
   for (const plan of plans) {
-    for (const side of [booted.base, booted.head]) {
+    for (const side of sides) {
       n++;
       const target: CaptureTarget = {
         id: plan.id,
@@ -488,7 +613,7 @@ async function captureStage(booted: Booted, prepared: Prepared, outDir: string):
         a11y: plan.a11y,
         focusOrder: plan.focus,
       };
-      log.step(`capture ${n}/${plans.length * 2}: ${side.name} ${plan.route.path} (${plan.viewport.name}, ${plan.theme.name})`);
+      log.step(`capture ${n}/${plans.length * sides.length}: ${side.name} ${plan.route.path} (${plan.viewport.name}, ${plan.theme.name})`);
       const record = await booted.session.capture(target);
       if (!record.ok) log.warn(`${side.name} ${plan.id}: ${record.error}`);
       else if (!record.stable || record.unsettled) log.warn(unsettledWarning(`${side.name} ${plan.id}`, record));
@@ -500,7 +625,7 @@ async function captureStage(booted: Booted, prepared: Prepared, outDir: string):
 }
 
 /** Pixel diffs and composites per plan, plus the warnings each side's capture left. */
-function diffStage(plans: Plan[], records: Map<string, CaptureRecord>, ctx: { base: Side; head: Side; cfg: ResolvedConfig; outDir: string }): CaptureResult[] {
+function diffStage(plans: Plan[], records: Map<string, CaptureRecord>, ctx: { base: Side; head: Side; cfg: ResolvedConfig; outDir: string; cache?: BaseCacheInfo }): CaptureResult[] {
   const { cfg } = ctx;
   const captures = plans.map((plan) => compareCapture(plan, records.get(`base:${plan.id}`)!, records.get(`head:${plan.id}`)!, ctx));
   for (const c of captures) {
@@ -577,7 +702,7 @@ async function extrasStage(
       routes,
       viewports,
       themes,
-      base,
+      base: booted.liveBase,
       head,
       outDir,
       cfg,
@@ -608,10 +733,11 @@ async function extrasStage(
   };
 }
 
-function captureFingerprint(baseRec: CaptureRecord, headRec: CaptureRecord, ctx: { base: Side; head: Side; cfg: ResolvedConfig }): CaptureFingerprint | undefined {
+function captureFingerprint(baseRec: CaptureRecord, headRec: CaptureRecord, ctx: { base: Side; head: Side; cfg: ResolvedConfig; cache?: BaseCacheInfo }): CaptureFingerprint | undefined {
   const side = (rec: CaptureRecord, s: Side): SideFingerprint | undefined =>
     rec.environment ? { ...(s.sha ? { commit: s.sha } : {}), ...rec.environment, data: ctx.cfg.fingerprint.dataLabel ?? 'not declared' } : undefined;
   const base = side(baseRec, ctx.base);
+  if (base && ctx.cache) base.cache = { hit: ctx.cache.hit, key: ctx.cache.key };
   const head = side(headRec, ctx.head);
   if (!base && !head) return undefined;
   return { base, head, differences: base && head ? fingerprintDifferences(base, head) : [] };
@@ -629,7 +755,7 @@ export function httpProblem(side: 'base' | 'head', status: number | undefined): 
   return `${side} returned HTTP ${status}`;
 }
 
-function compareCapture(plan: Plan, baseRec: CaptureRecord, headRec: CaptureRecord, ctx: { base: Side; head: Side; cfg: ResolvedConfig; outDir: string }): CaptureResult {
+function compareCapture(plan: Plan, baseRec: CaptureRecord, headRec: CaptureRecord, ctx: { base: Side; head: Side; cfg: ResolvedConfig; outDir: string; cache?: BaseCacheInfo }): CaptureResult {
   const { cfg, outDir } = ctx;
   const result: CaptureResult = {
     id: plan.id,
@@ -769,7 +895,8 @@ async function captureMotion(
     routes: ResolvedRoute[];
     viewports: ViewportConfig[];
     themes: ThemeConfig[];
-    base: Side;
+    /** The running base app; started on demand when base captures came from the cache. */
+    base: () => Promise<Side>;
     head: Side;
     outDir: string;
     cfg: ResolvedConfig;
@@ -799,6 +926,7 @@ async function captureMotion(
     if (ctx.skipped.length) log.info(`motion: skipping unchanged route(s) ${ctx.skipped.join(', ')} (use --motion-all to record them)`);
   }
   const results: MotionResult[] = [];
+  const baseSide = targets.length ? await ctx.base() : undefined;
   for (const route of targets) {
     const m = route.motion ?? {};
     const viewport = ctx.viewports.find((v) => v.name === (m.viewport ?? cfg.motion.viewport)) ?? ctx.viewports[0];
@@ -811,7 +939,7 @@ async function captureMotion(
     try {
       const video = (side: Side) => (cfg.motion.format === 'gif' ? undefined : path.join(ctx.outDir, 'motion', `${id}__${side.name === 'base' ? 'before' : 'after'}.webm`));
       const record = (side: Side) => recordMotionSide(session, side, { route, viewport, theme, steps, durationMs, fromNavigation: Boolean(m.fromNavigation), cfg, video: video(side) });
-      const [base, head] = cfg.motion.parallel ? await Promise.all([record(ctx.base), record(ctx.head)]) : [await record(ctx.base), await record(ctx.head)];
+      const [base, head] = cfg.motion.parallel ? await Promise.all([record(baseSide!), record(ctx.head)]) : [await record(baseSide!), await record(ctx.head)];
       for (const [side, rec] of [['base', base], ['head', head]] as const) {
         if (rec.reduced) (result.warnings ??= []).push(`${side}: the page saw prefers-reduced-motion: reduce while recording`);
         for (const s of rec.skipped) result.steps = result.steps.map((d) => (d === s ? `${d} (not on ${side})` : d));
@@ -827,7 +955,7 @@ async function captureMotion(
           fps: cfg.motion.fps,
           durationMs,
           scale: cfg.motion.scale,
-          labels: { before: `BEFORE ${ctx.base.shortSha ?? ''}`.trim(), after: `AFTER ${ctx.head.shortSha ?? ''}`.trim() },
+          labels: { before: `BEFORE ${baseSide!.shortSha ?? ''}`.trim(), after: `AFTER ${ctx.head.shortSha ?? ''}`.trim() },
         });
         const file = path.join(ctx.outDir, 'motion', `${id}.gif`);
         writeFile(file, gif);

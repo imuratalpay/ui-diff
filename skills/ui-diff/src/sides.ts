@@ -215,6 +215,13 @@ function unlinkAll(worktreeRoot: string, cfg: ResolvedConfig, lockDir: string): 
   }
 }
 
+/** "main @ 1a2b3c4", "working tree @ 1a2b3c4", or just the short sha when the ref is a sha. */
+export function sideLabel(request: SideRequest, sha: string, short: string): string {
+  const display = request.workingTree ? 'working tree' : (request.displayRef ?? request.ref);
+  const plain = !display || display === sha || display === short || /^[0-9a-f]{7,40}$/i.test(display);
+  return plain ? short : `${display.replace(/^origin\//, '')} @ ${short}`;
+}
+
 export class SideManager {
   private tmpRoot?: string;
   private readonly worktrees: string[] = [];
@@ -376,11 +383,9 @@ export class SideManager {
     }
     const bootMs = failedBootMs + since(bootStart);
     const short = await shortSha(sha, cfg.repoRoot);
-    const display = request.workingTree ? 'working tree' : (request.displayRef ?? request.ref);
-    const plain = !display || display === sha || display === short || /^[0-9a-f]{7,40}$/i.test(display);
     return {
       name: request.name,
-      label: plain ? short : `${display.replace(/^origin\//, '')} @ ${short}`,
+      label: sideLabel(request, sha, short),
       mode: 'worktree',
       sha,
       shortSha: short,

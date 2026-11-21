@@ -60,6 +60,21 @@ export interface SideFingerprint {
   media: { reducedMotion: string; colorScheme: string; locale: string; timezone: string };
   /** `fingerprint.dataLabel`, or "not declared". */
   data: string;
+  /** Base side only: whether its captures came from the base cache, and the key. */
+  cache?: { hit: boolean; key: string };
+}
+
+/** The base cache this run used (worktree base only). */
+export interface BaseCacheInfo {
+  key: string;
+  hit: boolean;
+  /** Written by this run (a miss whose captures all succeeded). */
+  stored?: boolean;
+  /** When the reused captures were taken (hits). */
+  capturedAt?: string;
+  configHash: string;
+  browser: string;
+  uiDiffVersion: string;
 }
 
 export interface CaptureFingerprint {
@@ -123,6 +138,8 @@ export type InstallKind = 'linked' | 'copied' | 'installed' | 'shared' | 'none';
 /** Measured durations of one side's preparation (milliseconds). */
 export interface SideTiming {
   mode: 'worktree' | 'url';
+  /** Captures restored from the base cache: no checkout, install, build, boot or capture. */
+  cached?: boolean;
   /** Worktree checkout and copied files. */
   checkoutMs?: number;
   install?: { kind: InstallKind; ms: number; retried?: boolean };
@@ -202,6 +219,7 @@ export interface Report {
   a11y?: A11yReport;
   /** Set when nothing was captured: why (see `notCheckedReason`). */
   notChecked?: string;
+  baseCache?: BaseCacheInfo;
   timings?: Timings;
   warnings: string[];
   stats: { captures: number; changed: number; unchanged: number; added: number; removed: number; errors: number };
