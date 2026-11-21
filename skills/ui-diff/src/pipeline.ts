@@ -7,6 +7,7 @@ import { CaptureSession, ensureBrowser, launchBrowser, resolveBrowser, routeUrl,
 import { parseVariantFlag, pickThemes, pickViewports, resolveRoute, type ResolvedConfig, type ResolvedRoute, type Step, type ThemeConfig, type VariantSpec, type ViewportConfig } from './config.js';
 import { detectChanges, resolveBaseRef, type DetectResult } from './detect.js';
 import { composeCompare, diffPngs, focusBoxes } from './diff.js';
+import { diffElements, explainRegions, matchElements } from './elements.js';
 import { changedLines, git, gitCommonDir, mergeBase, revParse, shortSha } from './git.js';
 import { COLORS, composeRow, readPng, resizeToWidth, writePng } from './image.js';
 import { captureKey, keyId, type CaptureKey } from './key.js';
@@ -295,6 +296,9 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
     const diffStart = performance.now();
     const captures = diffStage(prepared.plans, records, { base, head, cfg, outDir });
     const diffMs = since(diffStart);
+    const styleDiffStart = performance.now();
+    if (cfg.styleDiff.enabled) styleDiffStage(captures, records, cfg);
+    const styleDiffMs = since(styleDiffStart);
     const { extras, timings: extrasTimings } = await extrasStage(opts, booted, prepared, captures, records);
     const cutWarning = truncationWarning(captures, cfg.capture.maxHeight);
     if (cutWarning) warnings.push(cutWarning);
@@ -315,7 +319,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       browserMs: booted.browserMs,
       capture: { ms: captureMs, count: records.size, slowest: slowestCapture(records) },
       diffMs,
-      extras: extrasTimings,
+      extras: { ...extrasTimings, ...(cfg.styleDiff.enabled ? { styleDiffMs, elementMapMs: [...records.values()].reduce((n, r) => n + (r.stylesMs ?? 0), 0) } : {}) },
     };
     return writeOutputs(report, outDir, false);
   } finally {
@@ -520,6 +524,30 @@ function diffStage(plans: Plan[], records: Map<string, CaptureRecord>, ctx: { ba
   return captures;
 }
 
+/**
+ * Element-level explanation of each capture: base and head element maps matched, their measured
+ * style differences, and each changed pixel area named after its element.
+ */
+function styleDiffStage(captures: CaptureResult[], records: Map<string, CaptureRecord>, cfg: ResolvedConfig): void {
+  const read = (file: string | undefined) => (file && existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as StyleSnapshot) : undefined);
+  for (const c of captures) {
+    if (c.status !== 'changed' && c.status !== 'unchanged') continue;
+    const [base, head] = [read(records.get(`base:${c.id}`)?.stylesFile), read(records.get(`head:${c.id}`)?.stylesFile)];
+    if (!base || !head) continue;
+    const match = matchElements(base.elements, head.elements);
+    const all = diffElements(base, head, match);
+    const kept = all.slice(0, cfg.styleDiff.maxChanges);
+    const regions = c.diff ? explainRegions(c.diff.regions, c.diff.scale, head, base, kept) : [];
+    const count = (level: string) => match.pairs.filter((p) => p.confidence === level).length;
+    c.styleDiff = {
+      matched: { high: count('high'), medium: count('medium'), low: count('low') },
+      changes: kept,
+      ...(all.length > kept.length ? { omitted: all.length - kept.length } : {}),
+      regions,
+    };
+  }
+}
+
 /** Variants, motion clips, the token audit and the accessibility delta, with how long each took. */
 async function extrasStage(
   opts: RunOptions,
@@ -566,7 +594,7 @@ async function extrasStage(
   if (prepared.tokens) {
     start = performance.now();
     tokens = auditTokens(captures, { outDir, tokenSet: prepared.tokens.set, cfg, files: prepared.tokens.files });
-    timings.tokensMs = since(start) + sum((r) => r.stylesMs);
+    timings.tokensMs = since(start) + (cfg.styleDiff.enabled ? 0 : sum((r) => r.stylesMs));
   }
   let a11y: Report['a11y'];
   if (prepared.a11yOn) {

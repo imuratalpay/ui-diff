@@ -915,6 +915,13 @@
           "default": true,
           "description": "Record the element map of every capture and describe changes as measured style changes",
           "type": "boolean"
+        },
+        "maxChanges": {
+          "default": 50,
+          "description": "Most element changes kept per capture in report.json",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
         }
       },
       "additionalProperties": false

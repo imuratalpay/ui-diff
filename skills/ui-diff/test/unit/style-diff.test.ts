@@ -111,6 +111,15 @@ describe('measured style diff', () => {
     );
   });
 
+  it('reports reordered items once, as an order change of their parent, not as every item moving', () => {
+    const list = (order: string[]) => [el({ tag: 'ul', attrs: { id: 'plans' }, box: { x: 0, y: 0, width: 300, height: 120 } }), ...order.map((t, i) => el({ tag: 'li', ownText: t, selector: `li:nth-of-type(${i + 1})`, parent: 0, box: { x: 0, y: i * 40, width: 300, height: 40 } }))];
+    const changes = diff(list(['Starter', 'Pro', 'Team']), list(['Team', 'Starter', 'Pro']));
+    assert.deepEqual(
+      changes.map((c) => [c.selector, c.changes.map((p) => `${p.property} ${p.before} → ${p.after}`)]),
+      [['ul', ['order Starter, Pro, Team → Team, Starter, Pro']]],
+    );
+  });
+
   it('is empty for identical maps', () => {
     const p = page({ padding: ['8px', '14px', '8px', '14px'], radius: '4px', width: 100, height: 36 });
     assert.deepEqual(diff(p, JSON.parse(JSON.stringify(p))), []);

@@ -199,7 +199,7 @@ async function cmdRun(values: Values): Promise<void> {
     stats: r.stats,
     changed: r.captures
       .filter((c) => c.status !== 'unchanged')
-      .map((c) => ({ id: c.id, status: c.status, ratio: c.diff?.ratio, images: [...c.images.focus, c.images.compare ?? c.images.head].filter(Boolean), error: c.error })),
+      .map((c) => ({ id: c.id, status: c.status, ratio: c.diff?.ratio, styleChanges: c.styleDiff?.changes.length, images: [...c.images.focus, c.images.compare ?? c.images.head].filter(Boolean), error: c.error })),
     variants: r.variants.map((v) => ({ id: v.id, images: v.items.map((i) => i.image ?? i.error) })),
     motion: r.motion.map((m) => ({ id: m.id, gif: m.gif, webm: m.webm, frames: m.frames, warnings: m.warnings, error: m.error })),
     motionSkipped: r.motionSkipped,

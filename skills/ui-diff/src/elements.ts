@@ -300,6 +300,21 @@ export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: El
   const childrenOf = new Map<number | null, number[]>();
   head.elements.forEach((e, i) => childrenOf.set(e.parent ?? null, [...(childrenOf.get(e.parent ?? null) ?? []), i]));
 
+  // Reordered children: one "order" change on their parent, and their moves are its consequence.
+  const reordered = new Set<number>();
+  const short = (e: StyledElement) => e.label ?? e.ownText ?? e.name ?? e.selector;
+  for (const [parent, kids] of childrenOf) {
+    if (parent === null || !raw.has(parent)) continue;
+    const matched = kids.filter((k) => baseOf.has(k));
+    const order = matched.map((k) => baseOf.get(k)!.base);
+    if (matched.length < 2 || order.every((b, i) => i === 0 || b > order[i - 1])) continue;
+    for (const k of matched) reordered.add(k);
+    const list = (names: string[]) => (names.length > 6 ? `${names.slice(0, 6).join(', ')}, …` : names.join(', '));
+    const before = [...order].sort((a, b) => a - b).map((b) => short(base.elements[b]));
+    const after = matched.map((k) => short(head.elements[k]));
+    raw.get(parent)!.changes.push({ property: 'order', group: 'layout', before: list(before), after: list(after) });
+  }
+
   const out: ElementChange[] = [];
   for (const [hi, r] of raw) {
     const h = head.elements[hi];
@@ -315,7 +330,7 @@ export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: El
       return !baseOf.has(k) || (kr && (kr.changes.length > 0 || Math.abs(kr.dw) >= 0.5 || Math.abs(kr.dh) >= 0.5 || Math.abs(kr.dx) >= 0.5 || Math.abs(kr.dy) >= 0.5));
     });
     if (resized && (changes.length > 0 || !kidChanged)) changes.unshift({ property: 'size', group: 'box', before: `${halfPx(b.box.width).replace('px', '')}×${halfPx(b.box.height)}`, after: `${halfPx(h.box.width).replace('px', '')}×${halfPx(h.box.height)}` });
-    if (moved) {
+    if (moved && !reordered.has(hi)) {
       // Pushed by an earlier sibling that changed size, or by one that was added or removed: a consequence.
       const siblings = (childrenOf.get(h.parent ?? null) ?? []).filter((s) => s < hi);
       const grew = siblings.reduce((acc, s) => {

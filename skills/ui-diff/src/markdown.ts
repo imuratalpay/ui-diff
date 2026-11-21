@@ -1,5 +1,6 @@
 import { categorize } from './a11y.js';
 import { describeDependency, type DependencyChange } from './deps.js';
+import type { ElementChange } from './elements.js';
 import { autoSummary, captureLabel, describeCapture, notCheckedNotice, notCheckedReason, type CaptureResult, type Report, type SideTiming, type Timings } from './report.js';
 
 export const MAX_COMMENT_LENGTH = 65000;
@@ -85,16 +86,95 @@ function sideLabel(side: Report['base']): string {
   return side.includesUncommitted ? `${side.label} + uncommitted changes` : side.label;
 }
 
+/** "padding 8px 14px → 10px 18px · border-radius 4px → 8px", "added (+2 inside)". */
+export function changeText(c: ElementChange): string {
+  if (c.kind !== 'changed') return `${c.kind}${c.inside ? ` (+${c.inside} inside)` : ''}`;
+  return c.changes.map((p) => (p.property === 'position' ? p.after : `${p.property} ${p.before} → ${p.after}`)).join(' · ');
+}
+
+function elementLabel(name: string, selector: string): string {
+  return name === selector || selector.length > 40 ? code(name) : `${code(name)} (${code(selector)})`;
+}
+
+const MEASURED_VISIBLE = 5;
+
+/**
+ * Measured changes of one route, across its changed captures: one line per element change,
+ * biggest first, the same change on several captures written once with where it happened when
+ * that is not everywhere. Says so plainly when pixels changed without a measured change.
+ */
+function measuredSection(report: Report, route: string, captures: CaptureResult[], opts: RenderOptions): string[] {
+  const measured = captures.filter((c) => c.route.path === route && c.status === 'changed' && c.styleDiff);
+  if (measured.length === 0) return [];
+  const themes = report.themes.length;
+  const rows = new Map<string, { text: string; magnitude: number; where: string[] }>();
+  for (const c of measured) {
+    const where = `${c.viewport}${themes > 1 ? `/${c.theme}` : ''}`;
+    for (const change of c.styleDiff!.changes) {
+      const text = `${elementLabel(change.name, change.selector)}: ${escapeText(changeText(change))}`;
+      const row = rows.get(text) ?? { text, magnitude: 0, where: [] };
+      row.magnitude = Math.max(row.magnitude, change.magnitude);
+      if (!row.where.includes(where)) row.where.push(where);
+      rows.set(text, row);
+    }
+  }
+  const heading = `**Measured changes on ${code(route)}**`;
+  if (rows.size === 0) {
+    const notes = [...new Set(measured.flatMap((c) => c.styleDiff!.regions.map((r) => r.note).filter((n): n is string => Boolean(n))))];
+    return [`${heading}: none. No measured style, text or size change; the pixels changed anyway${notes.length ? ` (${escapeText(notes.slice(0, 3).join('; '))})` : ''}.`, ''];
+  }
+  const sorted = [...rows.values()].sort((a, b) => b.magnitude - a.magnitude);
+  const line = (r: { text: string; where: string[] }) => `- ${r.text}${r.where.length < measured.length ? ` — ${r.where.join(', ')}` : ''}`;
+  const visible = (opts.compact ?? 0) >= 2 ? 3 : MEASURED_VISIBLE;
+  const out = [heading, '', ...sorted.slice(0, visible).map(line)];
+  const omitted = measured.reduce((n, c) => n + (c.styleDiff!.omitted ?? 0), 0);
+  if (sorted.length > visible && (opts.compact ?? 0) < 2) {
+    out.push('', `<details><summary>${sorted.length - visible} more measured change${sorted.length - visible === 1 ? '' : 's'}</summary>`, '', ...sorted.slice(visible).map(line), '', '</details>');
+  } else if (sorted.length > visible) {
+    out.push(`- …and ${sorted.length - visible} more in \`report.json\``);
+  }
+  if (omitted) out.push('', `<sub>${omitted} smaller change${omitted === 1 ? '' : 's'} left out (styleDiff.maxChanges).</sub>`);
+  return [...out, ''];
+}
+
+/** One line under a zoomed crop: what the changed areas inside it are. */
+function focusCaption(c: CaptureResult, index: number): string | undefined {
+  const box = c.diff?.focusBoxes?.[index];
+  if (!box || !c.styleDiff) return undefined;
+  const scale = c.diff!.scale;
+  const parts: string[] = [];
+  for (const r of c.styleDiff.regions) {
+    const area = { x: r.region.x / scale, y: r.region.y / scale, width: r.region.width / scale, height: r.region.height / scale };
+    if (area.x >= box.x + box.width || box.x >= area.x + area.width || area.y >= box.y + box.height || box.y >= area.y + area.height) continue;
+    const first = r.changes.map((i) => c.styleDiff!.changes[i])[0];
+    if (first) parts.push(`${first.name}: ${changeText(first)}`);
+    else if (r.element) parts.push(`${r.element.name}: ${r.note}`);
+    else if (r.note) parts.push(r.note);
+  }
+  const unique = [...new Set(parts)];
+  if (unique.length === 0) return undefined;
+  return `<sub>${escapeText(unique.slice(0, 2).join('; '))}${unique.length > 2 ? ` (+${unique.length - 2} more)` : ''}</sub>`;
+}
+
 function changedSection(report: Report, captures: CaptureResult[], opts: RenderOptions): string[] {
   const out: string[] = [];
   const themes = report.themes.length;
+  const routesDone = new Set<string>();
   for (const c of captures) {
+    if (!routesDone.has(c.route.path)) {
+      routesDone.add(c.route.path);
+      out.push(...measuredSection(report, c.route.path, captures, opts));
+    }
     out.push(`${captureHeading(c, themes)} — ${describeCapture(c)}`);
     if (c.urls.head) out.push(`<sub>head: ${c.urls.head}</sub>`);
     out.push('');
     const alt = `${captureLabel(c, themes)}: before, after and highlighted diff`;
     if (c.images.focus.length && (opts.compact ?? 0) < 3) {
-      for (const f of c.images.focus) out.push(img(opts, opts.link(f), `${alt} (zoomed)`), '');
+      c.images.focus.forEach((f, i) => {
+        out.push(img(opts, opts.link(f), `${alt} (zoomed)`), '');
+        const caption = focusCaption(c, i);
+        if (caption) out.push(caption, '');
+      });
       if (c.images.compare && (opts.compact ?? 0) < 1) {
         out.push('<details><summary>Full page</summary>', '', img(opts, opts.link(c.images.compare), alt), '', '</details>', '');
       }
@@ -247,7 +327,9 @@ const EXTRA_LABELS: Array<[keyof NonNullable<Timings['extras']>, string, string]
   ['variantsMs', 'variants', 'variant screenshots'],
   ['motionMs', 'motion', 'motion clips'],
   ['a11yMs', 'a11y', 'axe and focus order (during capture) and the delta'],
-  ['tokensMs', 'tokens', 'style snapshots (during capture) and the audit'],
+  ['tokensMs', 'tokens', 'the token audit'],
+  ['elementMapMs', 'element map', 'element maps of every capture (taken during capture)'],
+  ['styleDiffMs', 'style diff', 'matching elements, measuring style changes, naming changed areas'],
 ];
 
 /** The whole run on one line; every number is measured. */

@@ -324,6 +324,7 @@ export const ConfigSchema = z
     styleDiff: z
       .object({
         enabled: z.boolean().default(true).describe('Record the element map of every capture and describe changes as measured style changes'),
+        maxChanges: z.number().int().min(1).default(50).describe('Most element changes kept per capture in report.json'),
       })
       .strict()
       .prefault({}),

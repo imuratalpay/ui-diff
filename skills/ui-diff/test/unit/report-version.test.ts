@@ -20,14 +20,21 @@ function v1Report(overrides: Record<string, unknown> = {}): Record<string, unkno
 }
 
 describe('report versions', () => {
-  it('writes version 2', () => {
-    assert.equal(REPORT_VERSION, 2);
-    assert.equal(parseReport(JSON.parse(JSON.stringify(sampleReport())), 'report.json').version, 2);
+  it('writes version 3', () => {
+    assert.equal(REPORT_VERSION, 3);
+    assert.equal(parseReport(JSON.parse(JSON.stringify(sampleReport())), 'report.json').version, 3);
+  });
+
+  it('reads a version 2 report as it is', () => {
+    const v2 = { ...JSON.parse(JSON.stringify(sampleReport())), version: 2 };
+    const r = parseReport(v2, 'report.json');
+    assert.equal(r.version, 3);
+    assert.deepEqual({ ...r, version: 2 }, v2);
   });
 
   it('reads a version 1 report and fills in what version 2 derives', () => {
     const r = parseReport(v1Report(), 'report.json');
-    assert.equal(r.version, 2);
+    assert.equal(r.version, 3);
     assert.equal(r.captures.length, 2);
     assert.equal(r.notChecked, undefined);
     const empty = parseReport(v1Report({ routes: [], captures: [], stats: computeStats([]), detect: { uiFiles: [], unmatched: [], skippedRoutes: [], needsExample: [], notes: [] } }), 'report.json');
@@ -35,7 +42,7 @@ describe('report versions', () => {
   });
 
   it('refuses reports it cannot read, saying why', () => {
-    assert.throws(() => parseReport({ ...v1Report(), version: 3 }, '.ui-diff/report.json'), /\.ui-diff\/report\.json has report version 3/);
+    assert.throws(() => parseReport({ ...v1Report(), version: 4 }, '.ui-diff/report.json'), /\.ui-diff\/report\.json has report version 4/);
     assert.throws(() => parseReport({ captures: [] }, 'report.json'), /report version undefined/);
     assert.throws(() => parseReport(null, 'report.json'), /not a ui-diff report/);
   });
@@ -63,7 +70,8 @@ describe('render and publish --dry-run with old and new reports', () => {
 
   for (const [label, report] of [
     ['version 1 (CI artifact from ui-diff 0.1)', v1Report()],
-    ['version 2', JSON.parse(JSON.stringify(sampleReport()))],
+    ['version 2 (feat/v2 before the style diff)', { ...JSON.parse(JSON.stringify(sampleReport())), version: 2 }],
+    ['version 3', JSON.parse(JSON.stringify(sampleReport()))],
   ] as const) {
     it(`renders and dry-runs a ${label} report`, () => {
       const repo = repoWith(label.split(' ').slice(0, 2).join('-'), report);
@@ -78,9 +86,9 @@ describe('render and publish --dry-run with old and new reports', () => {
   }
 
   it('fails clearly on a report from a newer ui-diff', () => {
-    const repo = repoWith('newer', { ...v1Report(), version: 3 });
+    const repo = repoWith('newer', { ...v1Report(), version: 4 });
     const rendered = cli(repo, 'render');
     assert.equal(rendered.status, 1);
-    assert.match(rendered.stderr, /report version 3/);
+    assert.match(rendered.stderr, /report version 4/);
   });
 });

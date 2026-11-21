@@ -104,7 +104,10 @@ an earlier run): do not publish until a rerun succeeds.
 
 ## 4. Review and write the UX summary
 
-Open the images before writing (focus crops `compare/*__focus-*.png` first, then the full
+Start from the measured changes: `captures[].styleDiff.changes` in `report.json` names each changed
+element with exact before → after values (padding, color, radius, text, added, removed, reordered),
+and `styleDiff.regions` says which element each changed area belongs to; quote those values
+instead of estimating from pixels. Open the images before writing (focus crops `compare/*__focus-*.png` first, then the full
 composites, `variants/*__strip.png` and `motion/*.gif`). Read `.ui-diff/report.json` for the
 measured data, and start from `.ui-diff/summary.auto.md`. Write `.ui-diff/summary.md` for a
 designer or PM who will not read the code:

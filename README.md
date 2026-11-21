@@ -65,9 +65,12 @@ If something fails, see [Troubleshooting](#troubleshooting).
    `?theme=dark` are configurable.
 4. **Diffs with pixelmatch** and composes `before | after | diff` images: a full-page composite and
    zoomed crops of the largest changed areas, with changed pixels highlighted and boxed.
-5. **Writes a UX summary**: the agent writes it from the images and measurements (a data-driven
+5. **Names what changed**: an element map of each capture matches base and head elements and
+   measures their style changes, so the comment says `link 'Get started': padding 8px 14px →
+   10px 18px` instead of only "N pixels changed".
+6. **Writes a UX summary**: the agent writes it from the images and measurements (a data-driven
    fallback summary is generated for CI).
-6. **Creates or updates one PR comment** via `gh`, found by a hidden marker. Reruns edit it in
+7. **Creates or updates one PR comment** via `gh`, found by a hidden marker. Reruns edit it in
    place; nothing stacks.
 
 Extras, each behind a flag or config key:
@@ -310,15 +313,12 @@ skills/ui-diff/
 
 Not built yet; ideas that would make reviews better for design engineers:
 
-1. **Measured style changes per region.** List exact before → after computed values for elements in
-   changed areas (`padding 8px 14px → 12px 24px`, `#2563eb → #7c3aed`) so reviewers verify intent
-   instead of eyeballing pixels.
-2. **Figma fidelity check.** Compare head against a linked Figma frame (token kept private) to catch
+1. **Figma fidelity check.** Compare head against a linked Figma frame (token kept private) to catch
    drift from the approved design, not just from the previous build.
-3. **Responsive and content stress sweep.** Capture a breakpoint range (320–1440px) plus long-text,
+2. **Responsive and content stress sweep.** Capture a breakpoint range (320–1440px) plus long-text,
    RTL and pseudo-localized variants of changed screens to catch breakage that two fixed viewports
    and happy-path copy miss.
-4. **Design sign-off gate.** A `ui-diff/design-review` commit status that stays pending until a
+3. **Design sign-off gate.** A `ui-diff/design-review` commit status that stays pending until a
    designer ticks "Approved" in the sticky comment, tied to the head SHA so new pushes need a new
    approval.
 

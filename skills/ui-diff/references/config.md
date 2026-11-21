@@ -170,6 +170,25 @@ A "page did not settle" warning names the element that kept moving and the `mask
 masked elements a stable size (for example `font-variant-numeric: tabular-nums` on counters) so
 they do not push the rest of the page around.
 
+## Style diff
+
+Each capture records an element map right after its screenshot, from the same frozen page: every
+visible element with a stable id (`data-testid`, `id`, `aria-label`, else its selector), a readable
+name (`link 'Get started'`, `heading 'Pricing'`, the React or Vue component when there is one),
+its parent, its box in CSS and device px and its computed styles (`styles/<side>/<capture>.json`,
+at most `capture.styleMaxElements` elements; the report says when that cut it short). Base and
+head elements are matched by stable attributes, then text and structure, then position, each pair
+with a confidence and a reason; the rest are added or removed. Matched pairs are compared on box
+(padding, margin, gap, size, position), type, color, shape, layout, text and image source, after
+normalizing colors and rounding px to 0.5. Each changed pixel area is named after the smallest
+element containing it. The comment lists the measured changes under each changed route, biggest
+first, and names what each zoomed crop shows.
+
+| Key | Default | Notes |
+|---|---|---|
+| `styleDiff.enabled` | `true` | `false` skips the element map and the style diff. |
+| `styleDiff.maxChanges` | `50` | Most element changes kept per capture in `report.json`; the comment says how many were left out. |
+
 ## Fingerprint
 
 Each capture records what each side was rendered with, measured in the page: the commit, viewport

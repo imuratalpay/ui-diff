@@ -1,5 +1,6 @@
 import type { A11yIssue, FocusDelta } from './a11y.js';
 import { describeDependency, type DependencyChange } from './deps.js';
+import type { ElementChange, RegionExplanation } from './elements.js';
 import type { Box } from './image.js';
 import { UiDiffError } from './log.js';
 import type { AggregatedFinding } from './tokens.js';
@@ -45,6 +46,7 @@ export interface CaptureResult {
   fingerprint?: CaptureFingerprint;
   /** Size of each side's element map (styles/<side>/<id>.json); capped when capture.styleMaxElements cut it short. */
   elementMap?: Partial<Record<'base' | 'head', { elements: number; capped?: boolean }>>;
+  styleDiff?: CaptureStyleDiff;
 }
 
 /** What one side of a capture was rendered with, measured in the page. No paths, hosts, users or env values. */
@@ -141,8 +143,8 @@ export interface Timings {
   browserMs?: number;
   capture?: { ms: number; count: number; slowest?: { id: string; side: 'base' | 'head'; ms: number } };
   diffMs?: number;
-  /** a11y and tokens include the axe runs and style snapshots taken during capture. */
-  extras?: { variantsMs?: number; motionMs?: number; a11yMs?: number; tokensMs?: number };
+  /** a11y includes the axe runs and elementMapMs the element maps, both taken during capture. */
+  extras?: { variantsMs?: number; motionMs?: number; a11yMs?: number; tokensMs?: number; elementMapMs?: number; styleDiffMs?: number };
 }
 
 export interface SideSummary {
@@ -155,8 +157,20 @@ export interface SideSummary {
   includesUncommitted?: boolean;
 }
 
-/** Version of report.json this ui-diff writes. 1 (ui-diff 0.1) is still read, see `parseReport`. */
-export const REPORT_VERSION = 2;
+/** Version of report.json this ui-diff writes. 1 and 2 are still read, see `parseReport`. */
+export const REPORT_VERSION = 3;
+
+/** Measured element-level changes of one capture (report version 3). */
+export interface CaptureStyleDiff {
+  /** Pairs found between the base and head element maps, by confidence. */
+  matched: { high: number; medium: number; low: number };
+  /** Changed, added and removed elements, biggest first (at most styleDiff.maxChanges). */
+  changes: ElementChange[];
+  /** Changes left out by styleDiff.maxChanges. */
+  omitted?: number;
+  /** One per diff region, same order. */
+  regions: RegionExplanation[];
+}
 
 export interface Report {
   version: typeof REPORT_VERSION;
@@ -195,13 +209,15 @@ export interface Report {
 
 /**
  * Reads a report.json written by this or an earlier ui-diff (CI artifacts and kept reports outlive
- * upgrades). Version 1 has the shape of version 2 without its optional additions (`notChecked`,
- * `diff.focusBoxes`); `notChecked` is derived from the report.
+ * upgrades). Version 2 lacks only version 3's optional `styleDiff`; version 1 also lacks version 2's
+ * optional additions (`notChecked`, `diff.focusBoxes`), and `notChecked` is derived from the report.
  */
 export function parseReport(raw: unknown, file: string): Report {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new UiDiffError(`${file} is not a ui-diff report`, { hint: 'Run `ui-diff run` to write a new one.' });
   const version = (raw as { version?: unknown }).version;
   if (version === REPORT_VERSION) return raw as Report;
+  // Version 2 differs only by what 3 added (styleDiff), which is optional.
+  if (version === 2) return { ...(raw as Omit<Report, 'version'>), version: REPORT_VERSION } as Report;
   if (version === 1) {
     const report = { ...(raw as Omit<Report, 'version'>), version: REPORT_VERSION } as Report;
     const notChecked = notCheckedReason(report);
@@ -337,6 +353,18 @@ export function notCheckedNotice(reason: string): string {
   return `**Nothing was checked.** ${reason[0].toUpperCase()}${reason.slice(1)}. This is not a visual all-clear.`;
 }
 
+/** " Measured: link 'Get started' padding 8px 14px → 10px 18px (+2 more)." for the automatic summary. */
+function measuredSummary(items: CaptureResult[]): string {
+  const withDiff = items.filter((c) => c.styleDiff);
+  if (withDiff.length === 0) return '';
+  const all = withDiff.flatMap((c) => c.styleDiff!.changes).sort((a, b) => b.magnitude - a.magnitude);
+  if (all.length === 0) return ' No measured style, text or size change.';
+  const top = all[0];
+  const what = top.kind === 'changed' ? top.changes.map((p) => (p.property === 'position' ? p.after : `${p.property} ${p.before} → ${p.after}`)).join(', ') : top.kind;
+  const others = new Set(all.slice(1).filter((c) => c.selector !== top.selector).map((c) => c.selector)).size;
+  return ` Measured: ${top.name} ${what}${others ? ` (+${others} more element${others === 1 ? '' : 's'})` : ''}.`;
+}
+
 /** Data-driven summary used when no agent/human summary is supplied. */
 export function autoSummary(report: Report): string {
   const lines: string[] = [];
@@ -353,7 +381,7 @@ export function autoSummary(report: Report): string {
     for (const [route, items] of byRoute) {
       const worst = items.reduce((a, b) => ((b.diff?.ratio ?? 0) > (a.diff?.ratio ?? 0) ? b : a));
       const where = items.map((i) => `${i.viewport}${report.themes.length > 1 ? `/${i.theme}` : ''}`).join(', ');
-      lines.push(`- \`${route}\` changed on ${where}; largest: ${describeCapture(worst)}.`);
+      lines.push(`- \`${route}\` changed on ${where}; largest: ${describeCapture(worst)}.${measuredSummary(items)}`);
     }
   }
   if (s.errors) lines.push(`- ${s.errors} capture${s.errors === 1 ? '' : 's'} failed — see the details below.`);
