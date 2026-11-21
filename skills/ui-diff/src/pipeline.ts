@@ -1,13 +1,15 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
+import type { Browser } from 'playwright';
 import { diffFocusOrder, diffViolations, type A11yIssue } from './a11y.js';
-import { resolveAuth, sanitizeUrl } from './auth.js';
+import { resolveAuth, sanitizeUrl, type ResolvedAuth } from './auth.js';
 import { CaptureSession, ensureBrowser, launchBrowser, routeUrl, type CaptureRecord, type CaptureTarget } from './capture.js';
 import { parseVariantFlag, pickThemes, pickViewports, resolveRoute, type ResolvedConfig, type ResolvedRoute, type Step, type ThemeConfig, type VariantSpec, type ViewportConfig } from './config.js';
 import { detectChanges, resolveBaseRef, type DetectResult } from './detect.js';
 import { composeCompare, diffPngs, focusBoxes } from './diff.js';
 import { git, gitCommonDir, mergeBase, revParse, shortSha } from './git.js';
 import { COLORS, composeRow, readPng, resizeToWidth, writePng } from './image.js';
+import { captureKey, keyId, type CaptureKey } from './key.js';
 import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
 import { distinctFrames, encodeSideBySideGif, motionWarning, moveFile, recordFrames, writeFile, type RawFrame } from './motion.js';
@@ -152,8 +154,8 @@ function sideSummary(side: Side): SideSummary {
   return { label: side.label, mode: side.mode, sha: side.sha, shortSha: side.shortSha, ref: side.ref, url: side.mode === 'url' ? sanitizeUrl(side.url) : undefined, includesUncommitted: side.includesUncommitted };
 }
 
-function captureId(route: ResolvedRoute, viewport: ViewportConfig, theme: ThemeConfig): string {
-  return `${route.slug}__${viewport.name}__${theme.name}`;
+function captureId(route: ResolvedRoute, viewport: ViewportConfig, theme: ThemeConfig, variant?: CaptureKey['variant']): string {
+  return keyId(captureKey(route, viewport, theme, variant));
 }
 
 function rel(outDir: string, file: string): string {
@@ -164,9 +166,41 @@ interface Plan {
   route: ResolvedRoute;
   viewport: ViewportConfig;
   theme: ThemeConfig;
+  key: CaptureKey;
+  /** `keyId(key)`: the capture id in the report and the stem of its file names. */
   id: string;
   a11y: boolean;
   focus: boolean;
+}
+
+/** Where base and head come from, after detection. */
+interface Detected {
+  detection?: DetectResult;
+  baseUrl?: string;
+  headUrl?: string;
+  baseRequest: SideRequest;
+  headRequest: SideRequest;
+}
+
+/** What will be captured and with which extras; no app is running yet. */
+interface Prepared {
+  routes: ResolvedRoute[];
+  viewports: ViewportConfig[];
+  themes: ThemeConfig[];
+  plans: Plan[];
+  reportBase: Omit<Report, 'base' | 'head' | 'captures' | 'variants' | 'motion' | 'warnings' | 'stats'>;
+  motionOn: boolean;
+  a11yOn: boolean;
+  tokens?: { set: TokenSet; files: string[] };
+  stylesOn: boolean;
+  auth?: ResolvedAuth;
+}
+
+interface Booted {
+  base: Side;
+  head: Side;
+  browser: Browser;
+  session: CaptureSession;
 }
 
 async function selectRoutes(opts: RunOptions, detection: DetectResult | undefined): Promise<ResolvedRoute[]> {
@@ -216,7 +250,52 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
   const { cfg, outDir } = opts;
   const runStart = new Date();
   const warnings: string[] = [];
+  const detected = await detectStage(opts, warnings);
+  const prepared = await prepareStage(opts, detected, runStart);
+  if (prepared.routes.length === 0) return writeOutputs(await emptyReport(cfg, prepared, detected, warnings), outDir, true);
 
+  const sides = new SideManager(cfg, { outDir: finalDir, keepWorktrees: opts.keepWorktrees });
+  const onSignal = () => {
+    killAllServers();
+    sides.cleanupSync();
+    rmSync(outDir, { recursive: true, force: true });
+    const kept = markRunFailed(finalDir, 'interrupted');
+    if (kept) log.warn(kept);
+    process.exit(130);
+  };
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+  let booted: Booted | undefined;
+  try {
+    booted = await bootStage(sides, detected, prepared, { cfg, runStart });
+    const { base, head } = booted;
+    const records = await captureStage(booted, prepared, outDir);
+    const captures = diffStage(prepared.plans, records, { base, head, cfg, outDir });
+    const extras = await extrasStage(opts, booted, prepared, captures, records);
+    const cutWarning = truncationWarning(captures, cfg.capture.maxHeight);
+    if (cutWarning) warnings.push(cutWarning);
+    for (const side of [base, head]) if (side.server) warnings.push(...serverLogWarnings(side.server.logFile, side.name));
+    const report: Report = {
+      ...prepared.reportBase,
+      base: sideSummary(base),
+      head: sideSummary(head),
+      captures,
+      ...extras,
+      warnings,
+      stats: computeStats(captures),
+    };
+    return writeOutputs(report, outDir, false);
+  } finally {
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
+    await booted?.browser.close().catch(() => undefined);
+    await sides.cleanup();
+  }
+}
+
+/** Detection (changed files → routes) and the refs or URLs each side is built from. */
+async function detectStage(opts: RunOptions, warnings: string[]): Promise<Detected> {
+  const { cfg } = opts;
   const baseUrl = opts.baseUrl ?? cfg.preview.base;
   const headUrl = opts.headUrl ?? cfg.preview.head;
   let detection: DetectResult | undefined;
@@ -239,11 +318,17 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
     baseRequest = { name: 'base', ref: mb, displayRef: baseRef };
   }
   if (!headUrl) headRequest = opts.head ? { name: 'head', ref: opts.head, displayRef: opts.head } : { name: 'head', workingTree: true };
+  return { detection, baseUrl, headUrl, baseRequest, headRequest };
+}
 
+/** Routes, viewports, themes, the capture plan, token set and credentials. Runs nothing. */
+async function prepareStage(opts: RunOptions, detected: Detected, runStart: Date): Promise<Prepared> {
+  const { cfg } = opts;
+  const { detection } = detected;
   const routes = await selectRoutes(opts, detection);
   const viewports = pickViewports(cfg, opts.viewports);
   const themes = pickThemes(cfg, opts.themes);
-  const reportBase = {
+  const reportBase: Prepared['reportBase'] = {
     version: 1 as const,
     tool: { name: 'ui-diff' as const, version: VERSION },
     createdAt: runStart.toISOString(),
@@ -257,160 +342,151 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
     viewports: viewports.map((v) => v.name),
     themes: themes.map((t) => t.name),
   };
-
-  if (routes.length === 0) {
-    const shas = async (sha: string | undefined) => (sha ? { sha, shortSha: await shortSha(sha, cfg.repoRoot) } : {});
-    const report: Report = {
-      ...reportBase,
-      base: { label: baseRequest.ref ?? baseRequest.url ?? 'base', mode: baseRequest.url ? 'url' : 'worktree', ...(await shas(baseRequest.ref)) },
-      head: { label: headRequest.ref ?? headRequest.url ?? 'working tree', mode: headRequest.url ? 'url' : 'worktree', ...(await shas(detection?.head.sha)) },
-      captures: [],
-      variants: [],
-      motion: [],
-      warnings,
-      stats: computeStats([]),
-    };
-    report.notChecked = notCheckedReason(report);
-    return writeOutputs(report, outDir, true);
-  }
-
   const motionOn = cfg.motion.enabled || Boolean(opts.motion);
-  const tokensOn = cfg.tokens.enabled || Boolean(opts.tokens?.length);
   const a11yOn = cfg.a11y.enabled || Boolean(opts.a11y);
-  let tokenSet: TokenSet | undefined;
-  let tokenFiles: string[] = [];
-  if (tokensOn) {
-    const requested = (opts.tokens ?? []).filter((f) => f !== 'auto');
-    tokenFiles = (requested.length ? requested.map((f) => realpathIfExists(path.resolve(process.cwd(), f))) : cfg.tokens.files.map((f) => path.resolve(cfg.dir, f))).filter(Boolean);
-    if (tokenFiles.length === 0) {
-      const tracked = (await git(['ls-files', '-z'], { cwd: cfg.dir })).split('\0').filter(Boolean);
-      tokenFiles = detectTokenFiles(cfg.dir, tracked).map((f) => path.join(cfg.dir, f));
-      if (tokenFiles.length) log.info(`auto-detected token files: ${tokenFiles.map((f) => path.relative(cfg.repoRoot, f)).join(', ')}`);
-    }
-    if (tokenFiles.length === 0) throw new UiDiffError('Token audit is enabled but no token files were configured or found', { hint: 'Set tokens.files in ui-diff.config.json or pass --tokens path/to/tokens.json (JSON, CSS or StyleX *.stylex.ts)' });
-    tokenSet = buildTokenSet(loadTokenFiles(tokenFiles), cfg.tokens.remBase, cfg.tokens.categories);
-    log.info(`loaded ${tokenSet.values.length} design tokens from ${tokenFiles.map((f) => path.relative(cfg.repoRoot, f)).join(', ')}`);
-  }
+  if (routes.length === 0) return { routes, viewports, themes, plans: [], reportBase, motionOn, a11yOn, stylesOn: false };
 
-  const previewUrls = [baseUrl, headUrl].filter((u): u is string => Boolean(u));
+  const tokens = cfg.tokens.enabled || Boolean(opts.tokens?.length) ? await loadTokens(opts) : undefined;
+  const previewUrls = [detected.baseUrl, detected.headUrl].filter((u): u is string => Boolean(u));
   const auth = previewUrls.length || cfg.auth?.origins?.length ? resolveAuth(cfg.auth, previewUrls) : undefined;
   if (cfg.auth && !auth && previewUrls.length === 0) log.debug('auth configured but both sides run locally; credentials not used');
-  const sides = new SideManager(cfg, { outDir: finalDir, keepWorktrees: opts.keepWorktrees });
-  const onSignal = () => {
-    killAllServers();
-    sides.cleanupSync();
-    rmSync(outDir, { recursive: true, force: true });
-    const kept = markRunFailed(finalDir, 'interrupted');
-    if (kept) log.warn(kept);
-    process.exit(130);
-  };
-  process.once('SIGINT', onSignal);
-  process.once('SIGTERM', onSignal);
-  let browser: Awaited<ReturnType<typeof launchBrowser>> | undefined;
-  try {
-    await ensureBrowser();
-    const prepared = await Promise.allSettled([sides.prepare(baseRequest), sides.prepare(headRequest)]);
-    const failed = prepared.find((p): p is PromiseRejectedResult => p.status === 'rejected');
-    if (failed) throw failed.reason;
-    const [base, head] = prepared.map((p) => (p as PromiseFulfilledResult<Side>).value);
-    log.info(`base: ${base.label} (${base.mode}) · head: ${head.label} (${head.mode})`);
-    browser = await launchBrowser();
-    const session = new CaptureSession(browser, { cfg, auth, runStart });
-    const a11yViewports = cfg.a11y.viewports;
-    const a11yThemes = cfg.a11y.themes;
+  return { routes, viewports, themes, plans: planCaptures(cfg, routes, viewports, themes, a11yOn), reportBase, motionOn, a11yOn, tokens, stylesOn: Boolean(tokens) || Boolean(opts.collectStyles), auth };
+}
 
-    const plans: Plan[] = [];
-    for (const route of routes) {
-      const vps = route.viewports ? viewports.filter((v) => route.viewports!.includes(v.name)) : viewports;
-      const ths = route.themes ? themes.filter((t) => route.themes!.includes(t.name)) : themes;
-      for (const viewport of vps) {
-        for (const theme of ths) {
-          const a11y = a11yOn && (!a11yViewports || a11yViewports.includes(viewport.name)) && (!a11yThemes || a11yThemes.includes(theme.name));
-          plans.push({ route, viewport, theme, id: captureId(route, viewport, theme), a11y, focus: a11y && cfg.a11y.focusOrder && theme.name === ths[0].name });
-        }
-      }
-    }
-
-    const records = new Map<string, CaptureRecord>();
-    const stylesOn = Boolean(tokenSet) || Boolean(opts.collectStyles);
-    const extraColors = tokenSet ? tokenColorStrings(tokenSet) : [];
-    let n = 0;
-    for (const plan of plans) {
-      for (const side of [base, head]) {
-        n++;
-        const target: CaptureTarget = {
-          id: plan.id,
-          side: side.name,
-          route: plan.route,
-          viewport: plan.viewport,
-          theme: plan.theme,
-          url: routeUrl(side.url, plan.route.path, plan.theme.query),
-          file: path.join(outDir, 'captures', side.name, `${plan.id}.png`),
-          styles: stylesOn ? { file: path.join(outDir, 'styles', side.name, `${plan.id}.json`), extraColors } : undefined,
-          a11y: plan.a11y,
-          focusOrder: plan.focus,
-        };
-        log.step(`capture ${n}/${plans.length * 2}: ${side.name} ${plan.route.path} (${plan.viewport.name}, ${plan.theme.name})`);
-        const record = await session.capture(target);
-        if (!record.ok) log.warn(`${side.name} ${plan.id}: ${record.error}`);
-        else if (!record.stable || record.unsettled) log.warn(unsettledWarning(`${side.name} ${plan.id}`, record));
-        for (const action of record.skippedActions ?? []) log.warn(`${plan.id}: ${skippedActionWarning(side.name, action)}`);
-        records.set(`${side.name}:${plan.id}`, record);
-      }
-    }
-
-    const captures: CaptureResult[] = [];
-    for (const plan of plans) {
-      captures.push(compareCapture(plan, records.get(`base:${plan.id}`)!, records.get(`head:${plan.id}`)!, { base, head, cfg, outDir }));
-    }
-
-    const variants = await captureVariants(session, { routes, viewports, themes, head, outDir, cfg, specs: variantSpecs(opts, routes) });
-    const changedRoutes = new Set(captures.filter((c) => c.status === 'changed' || c.status === 'added' || c.status === 'removed').map((c) => c.route.path));
-    const motionSkipped: string[] = [];
-    const motion = motionOn
-      ? await captureMotion(session, { routes, viewports, themes, base, head, outDir, cfg, explicit: Boolean(opts.motion), all: cfg.motion.all || Boolean(opts.motionAll), changedRoutes, skipped: motionSkipped })
-      : [];
-    const tokens = tokenSet ? auditTokens(captures, { outDir, tokenSet, cfg, files: tokenFiles }) : undefined;
-    const a11y = a11yOn ? a11yDelta(captures, plans, records, cfg) : undefined;
-
-    for (const c of captures) {
-      const b = records.get(`base:${c.id}`);
-      const h = records.get(`head:${c.id}`);
-      for (const [label, r] of [['base', b], ['head', h]] as const) {
-        for (const action of r?.skippedActions ?? []) c.warnings.push(skippedActionWarning(label, action));
-        if (r?.stylesCapped) c.warnings.push(styleCapWarning(label, cfg.capture.styleMaxElements));
-        if (r?.pageErrors.length) c.warnings.push(`${label}: uncaught page error: ${r.pageErrors[0]}`);
-        if (r && r.ok && (!r.stable || r.unsettled)) c.warnings.push(unsettledWarning(label, r));
-      }
-      if (b?.truncated || h?.truncated) {
-        c.truncated = true;
-        c.warnings.push(`page is taller than capture.maxHeight (${cfg.capture.maxHeight}px); only the top part was compared`);
-      }
-    }
-    const cutWarning = truncationWarning(captures, cfg.capture.maxHeight);
-    if (cutWarning) warnings.push(cutWarning);
-    for (const side of [base, head]) if (side.server) warnings.push(...serverLogWarnings(side.server.logFile, side.name));
-
-    const report: Report = {
-      ...reportBase,
-      base: sideSummary(base),
-      head: sideSummary(head),
-      captures,
-      variants,
-      motion,
-      motionSkipped: motionSkipped.length ? motionSkipped : undefined,
-      tokens,
-      a11y,
-      warnings,
-      stats: computeStats(captures),
-    };
-    return writeOutputs(report, outDir, false);
-  } finally {
-    process.removeListener('SIGINT', onSignal);
-    process.removeListener('SIGTERM', onSignal);
-    await browser?.close().catch(() => undefined);
-    await sides.cleanup();
+async function loadTokens(opts: RunOptions): Promise<{ set: TokenSet; files: string[] }> {
+  const { cfg } = opts;
+  const requested = (opts.tokens ?? []).filter((f) => f !== 'auto');
+  let files = (requested.length ? requested.map((f) => realpathIfExists(path.resolve(process.cwd(), f))) : cfg.tokens.files.map((f) => path.resolve(cfg.dir, f))).filter(Boolean);
+  if (files.length === 0) {
+    const tracked = (await git(['ls-files', '-z'], { cwd: cfg.dir })).split('\0').filter(Boolean);
+    files = detectTokenFiles(cfg.dir, tracked).map((f) => path.join(cfg.dir, f));
+    if (files.length) log.info(`auto-detected token files: ${files.map((f) => path.relative(cfg.repoRoot, f)).join(', ')}`);
   }
+  if (files.length === 0) throw new UiDiffError('Token audit is enabled but no token files were configured or found', { hint: 'Set tokens.files in ui-diff.config.json or pass --tokens path/to/tokens.json (JSON, CSS or StyleX *.stylex.ts)' });
+  const set = buildTokenSet(loadTokenFiles(files), cfg.tokens.remBase, cfg.tokens.categories);
+  log.info(`loaded ${set.values.length} design tokens from ${files.map((f) => path.relative(cfg.repoRoot, f)).join(', ')}`);
+  return { set, files };
+}
+
+function planCaptures(cfg: ResolvedConfig, routes: ResolvedRoute[], viewports: ViewportConfig[], themes: ThemeConfig[], a11yOn: boolean): Plan[] {
+  const plans: Plan[] = [];
+  for (const route of routes) {
+    const vps = route.viewports ? viewports.filter((v) => route.viewports!.includes(v.name)) : viewports;
+    const ths = route.themes ? themes.filter((t) => route.themes!.includes(t.name)) : themes;
+    for (const viewport of vps) {
+      for (const theme of ths) {
+        const a11y = a11yOn && (!cfg.a11y.viewports || cfg.a11y.viewports.includes(viewport.name)) && (!cfg.a11y.themes || cfg.a11y.themes.includes(theme.name));
+        const key = captureKey(route, viewport, theme);
+        plans.push({ route, viewport, theme, key, id: keyId(key), a11y, focus: a11y && cfg.a11y.focusOrder && theme.name === ths[0].name });
+      }
+    }
+  }
+  return plans;
+}
+
+/** Report for a run that captured nothing (no route was affected or selected). */
+async function emptyReport(cfg: ResolvedConfig, prepared: Prepared, detected: Detected, warnings: string[]): Promise<Report> {
+  const { baseRequest, headRequest, detection } = detected;
+  const shas = async (sha: string | undefined) => (sha ? { sha, shortSha: await shortSha(sha, cfg.repoRoot) } : {});
+  const report: Report = {
+    ...prepared.reportBase,
+    base: { label: baseRequest.ref ?? baseRequest.url ?? 'base', mode: baseRequest.url ? 'url' : 'worktree', ...(await shas(baseRequest.ref)) },
+    head: { label: headRequest.ref ?? headRequest.url ?? 'working tree', mode: headRequest.url ? 'url' : 'worktree', ...(await shas(detection?.head.sha)) },
+    captures: [],
+    variants: [],
+    motion: [],
+    warnings,
+    stats: computeStats([]),
+  };
+  report.notChecked = notCheckedReason(report);
+  return report;
+}
+
+/** Worktrees, installs and dev servers (or preview URLs) for both sides, then the browser. */
+async function bootStage(sides: SideManager, detected: Detected, prepared: Prepared, ctx: { cfg: ResolvedConfig; runStart: Date }): Promise<Booted> {
+  await ensureBrowser();
+  const results = await Promise.allSettled([sides.prepare(detected.baseRequest), sides.prepare(detected.headRequest)]);
+  const failed = results.find((p): p is PromiseRejectedResult => p.status === 'rejected');
+  if (failed) throw failed.reason;
+  const [base, head] = results.map((p) => (p as PromiseFulfilledResult<Side>).value);
+  log.info(`base: ${base.label} (${base.mode}) · head: ${head.label} (${head.mode})`);
+  const browser = await launchBrowser();
+  return { base, head, browser, session: new CaptureSession(browser, { cfg: ctx.cfg, auth: prepared.auth, runStart: ctx.runStart }) };
+}
+
+/** Screenshots (and style, axe and focus-order data) of every plan on both sides, keyed `<side>:<id>`. */
+async function captureStage(booted: Booted, prepared: Prepared, outDir: string): Promise<Map<string, CaptureRecord>> {
+  const { plans, stylesOn, tokens } = prepared;
+  const records = new Map<string, CaptureRecord>();
+  const extraColors = tokens ? tokenColorStrings(tokens.set) : [];
+  let n = 0;
+  for (const plan of plans) {
+    for (const side of [booted.base, booted.head]) {
+      n++;
+      const target: CaptureTarget = {
+        id: plan.id,
+        side: side.name,
+        route: plan.route,
+        viewport: plan.viewport,
+        theme: plan.theme,
+        url: routeUrl(side.url, plan.route.path, plan.theme.query),
+        file: path.join(outDir, 'captures', side.name, `${plan.id}.png`),
+        styles: stylesOn ? { file: path.join(outDir, 'styles', side.name, `${plan.id}.json`), extraColors } : undefined,
+        a11y: plan.a11y,
+        focusOrder: plan.focus,
+      };
+      log.step(`capture ${n}/${plans.length * 2}: ${side.name} ${plan.route.path} (${plan.viewport.name}, ${plan.theme.name})`);
+      const record = await booted.session.capture(target);
+      if (!record.ok) log.warn(`${side.name} ${plan.id}: ${record.error}`);
+      else if (!record.stable || record.unsettled) log.warn(unsettledWarning(`${side.name} ${plan.id}`, record));
+      for (const action of record.skippedActions ?? []) log.warn(`${plan.id}: ${skippedActionWarning(side.name, action)}`);
+      records.set(`${side.name}:${plan.id}`, record);
+    }
+  }
+  return records;
+}
+
+/** Pixel diffs and composites per plan, plus the warnings each side's capture left. */
+function diffStage(plans: Plan[], records: Map<string, CaptureRecord>, ctx: { base: Side; head: Side; cfg: ResolvedConfig; outDir: string }): CaptureResult[] {
+  const { cfg } = ctx;
+  const captures = plans.map((plan) => compareCapture(plan, records.get(`base:${plan.id}`)!, records.get(`head:${plan.id}`)!, ctx));
+  for (const c of captures) {
+    const b = records.get(`base:${c.id}`);
+    const h = records.get(`head:${c.id}`);
+    for (const [label, r] of [['base', b], ['head', h]] as const) {
+      for (const action of r?.skippedActions ?? []) c.warnings.push(skippedActionWarning(label, action));
+      if (r?.stylesCapped) c.warnings.push(styleCapWarning(label, cfg.capture.styleMaxElements));
+      if (r?.pageErrors.length) c.warnings.push(`${label}: uncaught page error: ${r.pageErrors[0]}`);
+      if (r && r.ok && (!r.stable || r.unsettled)) c.warnings.push(unsettledWarning(label, r));
+    }
+    if (b?.truncated || h?.truncated) {
+      c.truncated = true;
+      c.warnings.push(`page is taller than capture.maxHeight (${cfg.capture.maxHeight}px); only the top part was compared`);
+    }
+  }
+  return captures;
+}
+
+/** Variants, motion clips, the token audit and the accessibility delta. */
+async function extrasStage(
+  opts: RunOptions,
+  booted: Booted,
+  prepared: Prepared,
+  captures: CaptureResult[],
+  records: Map<string, CaptureRecord>,
+): Promise<Pick<Report, 'variants' | 'motion' | 'motionSkipped' | 'tokens' | 'a11y'>> {
+  const { cfg, outDir } = opts;
+  const { routes, viewports, themes } = prepared;
+  const { session, base, head } = booted;
+  const variants = await captureVariants(session, { routes, viewports, themes, head, outDir, cfg, specs: variantSpecs(opts, routes) });
+  const changedRoutes = new Set(captures.filter((c) => c.status === 'changed' || c.status === 'added' || c.status === 'removed').map((c) => c.route.path));
+  const motionSkipped: string[] = [];
+  const motion = prepared.motionOn
+    ? await captureMotion(session, { routes, viewports, themes, base, head, outDir, cfg, explicit: Boolean(opts.motion), all: cfg.motion.all || Boolean(opts.motionAll), changedRoutes, skipped: motionSkipped })
+    : [];
+  const tokens = prepared.tokens ? auditTokens(captures, { outDir, tokenSet: prepared.tokens.set, cfg, files: prepared.tokens.files }) : undefined;
+  const a11y = prepared.a11yOn ? a11yDelta(captures, prepared.plans, records, cfg) : undefined;
+  return { variants, motion, motionSkipped: motionSkipped.length ? motionSkipped : undefined, tokens, a11y };
 }
 
 export function skippedActionWarning(side: string, action: string): string {
@@ -523,11 +599,11 @@ async function captureVariants(
     const ths = spec.themes ? ctx.themes.filter((t) => spec.themes!.includes(t.name)) : ctx.themes.slice(0, 1);
     for (const viewport of vps) {
       for (const theme of ths) {
-        const id = `${captureId(route, viewport, theme)}__${spec.param}`;
+        const id = captureId(route, viewport, theme, { param: spec.param });
         const group: VariantGroup = { id, route: { path: route.path, name: route.name, slug: route.slug }, param: spec.param, viewport: viewport.name, theme: theme.name, items: [] };
         for (const value of spec.values) {
           log.step(`variant ${route.path} ${spec.param}=${value} (${viewport.name}, ${theme.name})`);
-          const file = path.join(ctx.outDir, 'variants', `${id}-${value.replace(/[^A-Za-z0-9_-]+/g, '_')}.png`);
+          const file = path.join(ctx.outDir, 'variants', `${captureId(route, viewport, theme, { param: spec.param, value })}.png`);
           const record = await session.capture({
             id: `${id}=${value}`,
             side: 'head',
