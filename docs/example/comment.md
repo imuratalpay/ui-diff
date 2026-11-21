@@ -1,5 +1,5 @@
 <!-- ui-diff:sticky id=default -->
-### UI diff — 3 measured changes on 1 route
+### UI diff — 8 measured changes on 1 route
 
 **Base** `6737326` → **Head** `cc13cab` · 1 route · desktop, mobile · light, dark
 
@@ -22,11 +22,14 @@
 
 **`/`**
 
-- `label 'Work email'` (`label`): color #f8fafc → #2563eb — desktop/dark, mobile/dark
-- `label 'Work email'` (`label`): color #0f172a → #2563eb — desktop/light, mobile/light
-- `link 'Start free trial'` (`a.cta`): size 134.5×40px → 142.5×44px · padding 8px 14px → 10px 18px · border-radius 4px → 8px
-- `div.hero-actions`: size 992×40px → 992×44px · gap 16px → 17px — desktop/light, desktop/dark
-- `div.hero-actions`: size 342×40px → 342×44px · gap 16px → 17px — mobile/light, mobile/dark
+- `label 'Work email'` (`label`): color #0f172a → #2563eb — desktop, mobile · light
+- `label 'Work email'` (`label`): color #f8fafc → #2563eb — desktop, mobile · dark
+- `link 'Start free trial'` (`a.cta`): size 134.5×40px → 142.5×44px — desktop, mobile · light, dark
+- `link 'Start free trial'` (`a.cta`): padding 8px 14px → 10px 18px — desktop, mobile · light, dark
+- `link 'Start free trial'` (`a.cta`): border-radius 4px → 8px — desktop, mobile · light, dark
+- `div.hero-actions`: size 992×40px → 992×44px — desktop · light, dark
+- `div.hero-actions`: size 342×40px → 342×44px — mobile · light, dark
+- `div.hero-actions`: gap 16px → 17px — desktop, mobile · light, dark
 
 #### Images
 
@@ -244,7 +247,7 @@
 
 </details>
 
-<details><summary>Capture settings and timing · ⏱ 30s</summary>
+<details><summary>Capture settings and timing · ⏱ 29s</summary>
 
 | | Base | Head |
 |---|---|---|
@@ -261,26 +264,26 @@
 
 **Timing**
 
-⏱ 30s total · detect 0.0s · prepare 0.5s (base: none 0.0s, boot 0.4s ‖ head: none 0.0s, boot 0.4s) · browser 0.0s · capture 14s (8 screenshots, slowest 1.8s) · diff 4.3s · variants 6.5s · motion 4.4s · a11y 1.1s · tokens 0.0s · element map 0.3s · style diff 0.0s
+⏱ 29s total · detect 0.0s · prepare 0.5s (base: none 0.0s, boot 0.4s ‖ head: none 0.0s, boot 0.4s) · browser 0.0s · capture 14s (8 screenshots, slowest 1.7s) · diff 4.2s · variants 6.4s · motion 4.4s · a11y 1.1s · tokens 0.0s · element map 0.2s · style diff 0.0s
 
 | Phase | Time | |
 |---|---|---|
 | detect | 0.0s | changed files → routes |
 | base | 0.4s | checkout 0.0s · install 0.0s (none) · boot 0.4s |
-| head | 0.5s | checkout 0.0s · install 0.0s (none) · boot 0.4s |
+| head | 0.4s | checkout 0.0s · install 0.0s (none) · boot 0.4s |
 | prepare | 0.5s | base and head at the same time (wall clock) |
 | browser | 0.0s | Chromium check and launch |
-| capture | 14s | 8 screenshots · slowest `home__mobile__light` (head) 1.8s |
-| diff | 4.3s | pixel diffs and composites |
-| variants | 6.5s | variant screenshots |
+| capture | 14s | 8 screenshots · slowest `home__mobile__light` (base) 1.7s |
+| diff | 4.2s | pixel diffs and composites |
+| variants | 6.4s | variant screenshots |
 | motion | 4.4s | motion clips |
 | a11y | 1.1s | axe and focus order (during capture) and the delta |
 | tokens | 0.0s | the token audit |
-| element map | 0.3s | element maps of every capture (taken during capture) |
+| element map | 0.2s | element maps of every capture (taken during capture) |
 | style diff | 0.0s | matching elements, measuring style changes, naming changed areas |
-| total | 30s | wall clock until the report was written |
+| total | 29s | wall clock until the report was written |
 
 </details>
 
-<sub>ui-diff 2.0.0 · base `6737326` · head `cc13cab` · full report: [report.json](report.json) · rendered locally — nothing uploaded · generated 2026-11-21 17:25:48 UTC</sub>
-<!-- ui-diff:meta {"head":"cc13cab81ca4c056ebe8ed861cce6747f2495e59","base":"6737326b2e051665eb7b14a33d39acee32ff22de","createdAt":"2026-11-21T17:25:48.744Z"} -->
+<sub>ui-diff 2.0.0 · base `6737326` · head `cc13cab` · full report: [report.json](report.json) · rendered locally — nothing uploaded · generated 2026-11-21 20:05:37 UTC</sub>
+<!-- ui-diff:meta {"head":"cc13cab81ca4c056ebe8ed861cce6747f2495e59","base":"6737326b2e051665eb7b14a33d39acee32ff22de","createdAt":"2026-11-21T20:05:37.023Z"} -->

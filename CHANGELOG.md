@@ -29,6 +29,10 @@ cannot be trusted.
   size and position. The comment says `link 'Get started': padding 8px 14px → 10px 18px`.
 - Inherited values, moves caused by a sibling, containers that only grew with their children and
   masked elements are left out. Added or removed subtrees are one entry.
+- Measured changes are one row per element, property and old → new value, with the variants it was
+  seen on (`desktop, mobile · light, dark`); a value that differs by variant gets one row per value.
+  The verdict counts these rows, `check` prints the same ones, and `report.json` keeps them under
+  `measured` with the captures of each.
 - Every changed pixel area is named after the element it is in, with the changes that explain it.
   Areas nothing measured explains are listed apart.
 - Each measured change is verified before it is shown: it needs at least
@@ -49,6 +53,9 @@ cannot be trusted.
   says "Nothing was checked" instead of looking clean.
 - Identical commits report no change on repeated runs, and a 1px padding change is named on every
   run (both covered by tests).
+
+- The token audit suggests a color token only when it is close (CIEDE2000 difference under 5);
+  otherwise it says "no close token" instead of naming an unrelated color.
 
 ### Images
 
@@ -78,6 +85,8 @@ cannot be trusted.
   routes whose changed files touch motion or the elements the steps target.
 - Worktrees of apps whose dev server does not follow symlinked `node_modules` get a hard-linked copy
   instead of a fresh install.
+- An app whose lockfile lists no packages installs nothing in the worktrees, and when the checkout
+  has no installed packages to reuse, the log says that instead of calling the lockfile different.
 - Each phase of a run is timed and shown in the comment and in `check`.
 
 ### Comment size
@@ -91,6 +100,14 @@ cannot be trusted.
 - ui-diff runs from a packed tarball or a clean copy of the skill folder: dependencies are found
   wherever they were installed, and the package is built when it is packed, not when it is
   installed.
+
+### CI workflow example
+
+- Its actions are on the majors that run on Node 24; self-hosted runners need runner 2.327.1 or newer.
+- The app needs a lockfile: a `package.json` without one stops the job with an error naming the fix,
+  and an app without `package.json` installs nothing.
+- The report artifact now really contains `.ui-diff`: the hidden folder was left out of the upload.
+  The base cache is not part of it.
 
 ## 0.1.0
 

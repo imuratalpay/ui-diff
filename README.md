@@ -100,6 +100,13 @@ and builds it (about a minute); the first capture downloads Playwright's Chromiu
 or `"browser": { "channel": "chrome" }` in the config; the example CI workflow does this with the
 runner's preinstalled Chrome.
 
+The app needs a lockfile (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` or `bun.lock`) if it
+has dependencies. ui-diff then reuses your installed `node_modules` in the base and head worktrees
+while the lockfile matches, and otherwise installs once from the lockfile, so both sides get the
+same packages. Without a lockfile it runs `npm install` in each worktree: slower, and base and head
+can end up with different versions. A lockfile that lists no packages installs nothing. The
+example CI workflow stops with an error when the app has a `package.json` but no lockfile.
+
 ```bash
 git clone https://github.com/imuratalpay/ui-diff.git ~/src/ui-diff
 cd ~/src/ui-diff
@@ -290,14 +297,18 @@ repository's own `GITHUB_TOKEN` (`contents: write` for the assets branch, `pull-
 for the comment). A `preflight` job runs `ui-diff detect` with only ui-diff's own dependencies (no
 app install, no browser) and prints a `status`; when nothing maps to a route the run ends there,
 successfully, and the capture job (app install, browser, `run`, `publish`) is skipped. It expects
-the skill committed into the app repository (`./install.sh --claude --project <app>`), skips fork
-PRs, and posts without a written summary, so its comments lead with the verdict and the measured
+the skill committed into the app repository (`./install.sh --claude --project <app>`) and a
+lockfile in the app (a `package.json` without one fails the job with an error naming the fix; an
+app without `package.json` installs nothing), skips fork PRs, and posts without a written summary, so its comments lead with the verdict and the measured
 changes. On PRs whose changed files include no UI file it posts
 nothing; on a sticky comment from an earlier push only the top line changes, to "no UI files
 changed in <sha>", and the last result with UI changes stays below it, collapsed.
 The capture job restores and saves the [base cache](#base-cache) under the key `ui-diff cache-key`
 prints, so later pushes to the same PR capture only head. The workflow also documents an optional
-`paths:` filter for skipping the workflow on GitHub's side.
+`paths:` filter for skipping the workflow on GitHub's side. Its actions (`actions/checkout@v7`,
+`actions/setup-node@v7`, `actions/cache@v6`, `actions/upload-artifact@v7`) run on Node 24, so
+self-hosted runners need runner version 2.327.1 or newer. The full `.ui-diff` folder, without the
+base cache, is kept as the `ui-diff-report` artifact for 14 days.
 
 ## Configure
 
@@ -378,8 +389,10 @@ on those two commits produced [`docs/example/comment.md`](docs/example/comment.m
 comment body that `publish` would post (with local image paths), and the images and `report.json`
 next to it.
 
-Its verdict is "3 measured changes on 1 route": the button's padding and radius, the actions' gap
-and the label's color, each measured on every capture it appears on. It found 4 changed captures (desktop/mobile × light/dark), about 0.34% of pixels on desktop and
+Its verdict is "8 measured changes on 1 route", one per row of the measured changes: the button's
+size, padding and radius, the same on all four captures; the actions' gap, and their height on
+desktop and on mobile (the width differs, so two rows); and the label's color in light and in dark
+mode (the old color differs, so two rows). It found 4 changed captures (desktop/mobile × light/dark), about 0.34% of pixels on desktop and
 0.40% on mobile. The taller button shifts the rest of the page down 4px (desktop height 1603 →
 1607px); that shift is aligned out of the changed percentage. There is 1 new accessibility issue
 (the email label is 3.45:1 in dark mode) and 3 new off-token spacing values (`10px`, `18px`,

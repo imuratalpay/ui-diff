@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -24,10 +24,10 @@ function detectScript(): string {
   return body.join('\n');
 }
 
-function detect(lockfile?: string): Record<string, string> {
+function detect(...files: string[]): Record<string, string> {
   const dir = mkdtempSync(path.join(tmpdir(), 'ui-diff-wf-'));
   try {
-    if (lockfile) writeFileSync(path.join(dir, lockfile), '');
+    for (const file of files) writeFileSync(path.join(dir, file), '');
     const out = path.join(dir, 'out');
     writeFileSync(out, '');
     execFileSync('bash', ['-e', '-c', detectScript()], { cwd: dir, env: { ...process.env, GITHUB_OUTPUT: out } });
@@ -123,7 +123,7 @@ describe('example CI workflow: browser', () => {
   it('captures with the runner\'s Chrome by default and caches Playwright\'s Chromium when that is used instead', () => {
     assert.match(workflow, /\n {2}UI_DIFF_BROWSER_CHANNEL: chrome\n/);
     const capture = job('ui-diff');
-    assert.match(capture, /- uses: actions\/cache@v4\n\s+id: playwright-cache\n\s+if: env\.UI_DIFF_BROWSER_CHANNEL == ''\n\s+with:\n\s+path: ~\/\.cache\/ms-playwright\n\s+key: playwright-\$\{\{ runner\.os \}\}-\$\{\{ steps\.playwright\.outputs\.version \}\}/);
+    assert.match(capture, /- uses: actions\/cache@v6\n\s+id: playwright-cache\n\s+if: env\.UI_DIFF_BROWSER_CHANNEL == ''\n\s+with:\n\s+path: ~\/\.cache\/ms-playwright\n\s+key: playwright-\$\{\{ runner\.os \}\}-\$\{\{ steps\.playwright\.outputs\.version \}\}/);
     assert.match(capture, /- name: Install Chromium\n\s+if: env\.UI_DIFF_BROWSER_CHANNEL == '' && steps\.playwright-cache\.outputs\.cache-hit != 'true'\n\s+run: npx --prefix "\$SKILL" playwright install --with-deps chromium/);
     for (const line of capture.split('\n').filter((l) => /playwright install/.test(l))) {
       const step = capture.slice(0, capture.indexOf(line));
@@ -136,7 +136,7 @@ describe('example CI workflow: base cache', () => {
   it('restores and saves .ui-diff/cache under the key ui-diff computes, before capturing', () => {
     const capture = job('ui-diff');
     assert.match(capture, /- name: Base cache key\n\s+id: base-cache\n\s+run: \|\n\s+node "\$SKILL\/bin\/ui-diff\.mjs" cache-key/);
-    assert.match(capture, /- uses: actions\/cache@v4\n\s+with:\n\s+path: \.ui-diff\/cache\n\s+key: \$\{\{ steps\.base-cache\.outputs\.key \}\}/);
+    assert.match(capture, /- uses: actions\/cache@v6\n\s+with:\n\s+path: \.ui-diff\/cache\n\s+key: \$\{\{ steps\.base-cache\.outputs\.key \}\}/);
     assert.ok(capture.indexOf('Base cache key') > capture.indexOf('playwright install'), 'the key needs the browser version');
     assert.ok(capture.indexOf('Base cache key') < capture.indexOf('- name: Capture and diff'));
   });
@@ -147,8 +147,33 @@ describe('example CI workflow', () => {
     assert.deepEqual(detect('pnpm-lock.yaml'), { name: 'pnpm', install: 'pnpm install --frozen-lockfile' });
     assert.deepEqual(detect('yarn.lock'), { name: 'yarn', install: 'yarn install --immutable' });
     assert.deepEqual(detect('bun.lockb'), { name: 'bun', install: 'bun install --frozen-lockfile' });
-    assert.deepEqual(detect('package-lock.json'), { name: 'npm', install: 'npm ci' });
-    assert.deepEqual(detect(), { name: 'npm', install: 'npm ci' });
+    assert.deepEqual(detect('package.json', 'package-lock.json'), { name: 'npm', install: 'npm ci' });
+    assert.deepEqual(detect(), { name: 'none' }, 'no package.json: nothing to install');
+    assert.match(job('ui-diff'), /- name: Install app dependencies\n\s+if: steps\.pm\.outputs\.name != 'none'\n/);
+  });
+
+  it('stops with an error when the app has a package.json but no lockfile', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'ui-diff-wf-'));
+    try {
+      writeFileSync(path.join(dir, 'package.json'), '{}');
+      const out = path.join(dir, 'out');
+      writeFileSync(out, '');
+      const run = spawnSync('bash', ['-e', '-c', detectScript()], { cwd: dir, env: { ...process.env, GITHUB_OUTPUT: out }, encoding: 'utf8' });
+      assert.equal(run.status, 1);
+      assert.match(run.stdout, /^::error file=package\.json::No lockfile\. Commit package-lock\.json, pnpm-lock\.yaml, yarn\.lock or bun\.lock/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses action majors that run on Node 24, without setup-node caching ~/.npm a second time', () => {
+    const versions = [...new Set([...workflow.matchAll(/uses: ([\w-]+\/[\w-]+)@(v\d+)/g)].map((m) => `${m[1]}@${m[2]}`))].sort();
+    assert.deepEqual(versions, ['actions/cache@v6', 'actions/checkout@v7', 'actions/setup-node@v7', 'actions/upload-artifact@v7', 'oven-sh/setup-bun@v2']);
+    assert.equal(workflow.match(/uses: actions\/setup-node@v7\n\s+with:\n\s+node-version: 22\n(?:\s+#.*\n)?\s+package-manager-cache: false\n/g)?.length, 2);
+  });
+
+  it('uploads the hidden .ui-diff folder as the report artifact, without the base cache', () => {
+    assert.match(job('ui-diff'), /uses: actions\/upload-artifact@v7\n\s+with:\n\s+name: ui-diff-report\n(?:\s+#.*\n)*\s+path: \|\n\s+\.ui-diff\n\s+!\.ui-diff\/cache\n\s+include-hidden-files: true\n/);
   });
 
   it('does not assume npm for the app', () => {

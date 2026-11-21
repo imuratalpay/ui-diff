@@ -44,16 +44,18 @@ jobs:
     outputs:
       status: ${{ steps.detect.outputs.status }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+          # The caches below are keyed explicitly; setup-node's own npm cache would cache ~/.npm twice.
+          package-manager-cache: false
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.npm
           key: ui-diff-npm-${{ hashFiles(format('{0}/package-lock.json', env.SKILL)) }}
@@ -85,24 +87,31 @@ jobs:
     if: needs.preflight.outputs.status == 'capture'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
-      # The app's package manager is picked from its lockfile (pnpm, yarn, bun or npm).
-      # The skill itself always installs with npm from its own package-lock.json.
+      # The app needs a lockfile (package-lock.json, pnpm-lock.yaml, yarn.lock or bun.lock): its
+      # package manager is picked from it, and the install is reproducible, so base and head get the
+      # same packages. A package.json without a lockfile stops the job here with an error; an app
+      # without package.json installs nothing. The skill itself always installs with npm from its
+      # own package-lock.json.
       - name: Detect the package manager
         id: pm
         run: |
           if [ -f pnpm-lock.yaml ]; then echo "name=pnpm" >> "$GITHUB_OUTPUT"; echo "install=pnpm install --frozen-lockfile" >> "$GITHUB_OUTPUT"
           elif [ -f yarn.lock ]; then echo "name=yarn" >> "$GITHUB_OUTPUT"; echo "install=yarn install --immutable" >> "$GITHUB_OUTPUT"
           elif [ -f bun.lock ] || [ -f bun.lockb ]; then echo "name=bun" >> "$GITHUB_OUTPUT"; echo "install=bun install --frozen-lockfile" >> "$GITHUB_OUTPUT"
-          else echo "name=npm" >> "$GITHUB_OUTPUT"; echo "install=npm ci" >> "$GITHUB_OUTPUT"; fi
+          elif [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then echo "name=npm" >> "$GITHUB_OUTPUT"; echo "install=npm ci" >> "$GITHUB_OUTPUT"
+          elif [ -f package.json ]; then echo "::error file=package.json::No lockfile. Commit package-lock.json, pnpm-lock.yaml, yarn.lock or bun.lock so base and head install the same packages."; exit 1
+          else echo "name=none" >> "$GITHUB_OUTPUT"; fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+          # The caches below are keyed explicitly; setup-node's own npm cache would cache ~/.npm twice.
+          package-manager-cache: false
 
       - name: Enable pnpm / yarn through Corepack
         if: steps.pm.outputs.name == 'pnpm' || steps.pm.outputs.name == 'yarn'
@@ -118,6 +127,7 @@ jobs:
       # install reads the package manager's cache (~/.npm, the pnpm store, the yarn cache) filled
       # by this step.
       - name: Install app dependencies
+        if: steps.pm.outputs.name != 'none'
         run: ${{ steps.pm.outputs.install }}
 
       - name: Install ui-diff
@@ -129,7 +139,7 @@ jobs:
         if: env.UI_DIFF_BROWSER_CHANNEL == ''
         run: echo "version=$(node -p "require('./$SKILL/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: playwright-cache
         if: env.UI_DIFF_BROWSER_CHANNEL == ''
         with:
@@ -154,7 +164,7 @@ jobs:
             --base "origin/${{ github.base_ref }}" --head "${{ github.event.pull_request.head.sha }}" > "$RUNNER_TEMP/cache-key.json"
           echo "key=ui-diff-$(jq -r .key "$RUNNER_TEMP/cache-key.json")" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .ui-diff/cache
           key: ${{ steps.base-cache.outputs.key }}
@@ -174,8 +184,13 @@ jobs:
 
       - name: Keep the full report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ui-diff-report
-          path: .ui-diff
+          # .ui-diff is a hidden folder, which upload-artifact leaves out unless told otherwise. The
+          # base cache is kept by the cache step above, not here.
+          path: |
+            .ui-diff
+            !.ui-diff/cache
+          include-hidden-files: true
           retention-days: 14
