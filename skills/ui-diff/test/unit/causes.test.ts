@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { checkSummary } from '../../src/check.js';
 import { diffElements, matchElements, type ElementChange } from '../../src/elements.js';
+import { renderComment } from '../../src/markdown.js';
 import { computeStats, type Report } from '../../src/report.js';
 import type { StyledElement, StyleSnapshot } from '../../src/tokens.js';
-import { verdict } from '../../src/verdict.js';
+import { measuredGroups, verdict } from '../../src/verdict.js';
 import { sampleReport } from './fixtures.js';
 
 type Over = Partial<Omit<StyledElement, 'styles'>> & { tag: string; styles?: Partial<StyledElement['styles']> };
@@ -78,6 +80,11 @@ describe('causes and effects', () => {
     const { report: r, changes } = report(hero(BEFORE), hero({ padding: '12px 18px', background: 'rgb(11, 122, 91)', width: 117.5, height: 48 }));
     assert.equal(verdict(r).text, '2 measured changes on 1 route');
     assert.deepEqual(kinds(changes).filter((k) => k.startsWith('a.cta')), ['a.cta size effect ← h3:padding', 'a.cta padding cause', 'a.cta background cause', 'a.cta position effect ← h3:padding']);
+    const body = renderComment(r, { id: 'default', title: 'UI diff', link: (p) => p });
+    assert.match(body, /- `link 'Start free trial'` \(`a\.cta`\): padding 8px 14px → 12px 18px — desktop\n {2}- size 109\.5×40px → 117\.5×48px, moved 4px left \(from the padding change\)\n/);
+    assert.match(body, / {2}<details><summary>5 effects on other elements<\/summary>\n\n {2}- `main`: size 1000×700px → 1000×708px\n {2}- `header\.hero`: size 1000×240px → 1000×248px\n/);
+    assert.match(body, /- `link 'Start free trial'` \(`a\.cta`\): background #2563eb → #0b7a5b — desktop\n/);
+    assert.match(checkSummary(r, '/o').text, /\n {2}- link 'Start free trial' \(a\.cta\): padding 8px 14px → 12px 18px — desktop\n {6}size 109\.5×40px → 117\.5×48px, moved 4px left \(from the padding change\)\n {6}main: size 1000×700px → 1000×708px\n/);
   });
 
   it('gives a padding-only change 1, with its size and move as effects', () => {
@@ -96,6 +103,17 @@ describe('causes and effects', () => {
   it('counts a parent that grew from a child padding change as an effect of it', () => {
     const { changes } = report(hero(BEFORE), hero({ ...BEFORE, padding: '12px 18px', width: 117.5, height: 48 }));
     assert.deepEqual(kinds(changes).filter((k) => /^(div\.actions|header\.hero|main) /.test(k)), ['main size effect ← h3:padding', 'header.hero size effect ← h3:padding', 'div.actions size effect ← h3:padding']);
+  });
+
+  it('keeps every change in report.json with its kind and, for effects, the row of the cause', () => {
+    const { report: r } = report(hero(BEFORE), hero({ padding: '12px 18px', background: 'rgb(11, 122, 91)', width: 117.5, height: 48 }));
+    const groups = measuredGroups(r);
+    const padding = groups.find((g) => g.property === 'padding')!;
+    assert.equal(padding.kind, 'cause');
+    const effects = groups.filter((g) => g.kind === 'effect');
+    assert.ok(effects.length >= 6 && effects.every((g) => g.cause === padding.id), JSON.stringify(effects.map((g) => [g.selector, g.property, g.cause])));
+    assert.deepEqual(effects.find((g) => g.selector === 'a.cta' && g.property === 'size')!.variants.map((v) => [v.change, v.cause]), [['h3:size', 'h3:padding']]);
+    assert.deepEqual(groups.filter((g) => g.kind !== 'effect').map((g) => g.property), ['padding', 'background']);
   });
 
   it('counts an effect whose cause cannot be found, instead of hiding it', () => {

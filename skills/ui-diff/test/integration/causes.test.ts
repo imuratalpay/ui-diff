@@ -52,13 +52,14 @@ describe('causes and effects in a real run', { timeout: 300_000 }, () => {
   it('counts a padding and background change as 2, with the size, the move and the pushed elements as effects of the padding', async () => {
     const { report, comment } = await run('padding-and-background');
     assert.equal(comment.split('\n')[1], '### UI diff (local preview) — 2 measured changes on 1 route');
-    assert.match(comment, /- `link 'Start free trial'` \(`a\.cta`\): padding 8px 14px → 12px 18px — desktop\n- `link 'Start free trial'` \(`a\.cta`\): background #2563eb → #0b7a5b — desktop\n/);
-    const changes = report.captures[0].styleDiff!.changes;
-    const cta = changes.find((c) => c.selector === 'a.cta')!;
-    assert.deepEqual(cta.changes.map((p) => `${p.kind} ${p.property}`), ['effect size', 'cause padding', 'cause background', 'effect position']);
-    const effects = changes.flatMap((c) => c.changes.filter((p) => p.kind === 'effect').map((p) => [c.selector, p.property, p.cause]));
-    assert.ok(effects.length >= 4 && effects.every(([, , cause]) => cause === cta.changes.find((p) => p.property === 'padding')!.id), JSON.stringify(effects));
-    assert.ok(effects.some(([selector, property]) => selector !== 'a.cta' && property === 'size'), 'the row and the hero grew with it');
+    assert.match(comment, /- `link 'Start free trial'` \(`a\.cta`\): padding 8px 14px → 12px 18px — desktop\n {2}- size [\d.]+×[\d.]+px → [\d.]+×[\d.]+px, moved 4px left \(from the padding change\)\n/);
+    assert.match(comment, /- `link 'Start free trial'` \(`a\.cta`\): background #2563eb → #0b7a5b — desktop\n/);
+    const groups = report.measured!;
+    const padding = groups.find((g) => g.property === 'padding')!;
+    assert.deepEqual(groups.filter((g) => g.kind !== 'effect').map((g) => `${g.kind} ${g.property}`), ['cause padding', 'cause background']);
+    const effects = groups.filter((g) => g.kind === 'effect');
+    assert.ok(effects.length >= 3 && effects.every((g) => g.cause === padding.id), JSON.stringify(effects.map((g) => [g.selector, g.property, g.cause])));
+    assert.ok(effects.some((g) => g.selector !== 'a.cta' && g.property === 'size'), 'the row and the hero grew with it');
   });
 
   it('counts a padding-only change as 1', async () => {

@@ -1,7 +1,8 @@
 import { categorize } from './a11y.js';
 import { describeDependency, type DependencyChange } from './deps.js';
+import { onlyEffects } from './elements.js';
 import { captureLabel, describeCapture, notCheckedNotice, notCheckedReason, type CaptureResult, type Report, type SideTiming, type Timings } from './report.js';
-import { changeText, isShownChange, measurements, pixelOnlyAreas, verdict } from './verdict.js';
+import { causeText, effectLines, isShownChange, measurements, pixelOnlyAreas, verdict, type EffectLine } from './verdict.js';
 
 export { changeText } from './verdict.js';
 
@@ -93,6 +94,8 @@ function elementLabel(name: string, selector: string): string {
 }
 
 const MEASURED_VISIBLE = 8;
+/** Effects on other elements than the cause's own are collapsed past this many. */
+const OTHER_EFFECTS_VISIBLE = 3;
 
 /**
  * Measured changes grouped by route: element first, then property old → new, biggest first, the
@@ -105,11 +108,22 @@ function measuredSection(report: Report, opts: RenderOptions): string[] {
   const out = ['#### Measured changes', ''];
   for (const r of routes) {
     out.push(`**${code(r.route)}**`, '');
-    const line = (row: (typeof r.rows)[number]) => `- ${elementLabel(row.name, row.selector)}: ${escapeText(row.text)} — ${row.where}`;
+    const line = (row: (typeof r.rows)[number]): string[] => {
+      const lines = [`- ${elementLabel(row.name, row.selector)}: ${escapeText(row.text)} — ${row.where}`];
+      const effects = effectLines(row);
+      const text = (e: EffectLine) => `  - ${e.element ? `${elementLabel(e.element.name, e.element.selector)}: ` : ''}${escapeText(e.text)}`;
+      const own = effects.filter((e) => !e.element);
+      const others = effects.filter((e) => e.element);
+      lines.push(...own.map(text));
+      if (others.length <= OTHER_EFFECTS_VISIBLE) lines.push(...others.map(text));
+      else if (compact < 2) lines.push(`  <details><summary>${others.length} effects on other elements</summary>`, '', ...others.map(text), '', '  </details>', '');
+      else lines.push(`  - …and ${others.length} effects on other elements in \`report.json\``);
+      return lines;
+    };
     const visible = compact >= 2 ? 3 : MEASURED_VISIBLE;
-    out.push(...r.rows.slice(0, visible).map(line));
+    out.push(...r.rows.slice(0, visible).flatMap(line));
     if (r.rows.length > visible && compact < 2) {
-      out.push('', `<details><summary>${r.rows.length - visible} more measured change${r.rows.length - visible === 1 ? '' : 's'}</summary>`, '', ...r.rows.slice(visible).map(line), '', '</details>');
+      out.push('', `<details><summary>${r.rows.length - visible} more measured change${r.rows.length - visible === 1 ? '' : 's'}</summary>`, '', ...r.rows.slice(visible).flatMap(line), '', '</details>');
     } else if (r.rows.length > visible) {
       out.push(`- …and ${r.rows.length - visible} more in \`report.json\``);
     }
@@ -147,8 +161,10 @@ function focusCaption(c: CaptureResult, index: number): string | undefined {
   for (const r of c.styleDiff.regions) {
     const area = { x: r.region.x / scale, y: r.region.y / scale, width: r.region.width / scale, height: r.region.height / scale };
     if (area.x >= box.x + box.width || box.x >= area.x + area.width || area.y >= box.y + box.height || box.y >= area.y + area.height) continue;
-    const first = r.changes.map((i) => c.styleDiff!.changes[i]).filter((x) => x.verified !== false)[0];
-    if (first) parts.push(`${first.name}: ${changeText(first)}`);
+    const touching = r.changes.map((i) => c.styleDiff!.changes[i]).filter((x) => x.verified !== false);
+    // Name what was changed, not what moved because of it.
+    const first = touching.find((x) => !onlyEffects(x)) ?? touching[0];
+    if (first) parts.push(`${first.name}: ${causeText(first)}`);
     else if (r.element) parts.push(`${r.element.name}: ${r.note}`);
     else if (r.note) parts.push(r.note);
   }

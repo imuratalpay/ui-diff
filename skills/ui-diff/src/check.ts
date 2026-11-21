@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { timingLine } from './markdown.js';
 import { captureLabel, describeCapture, notCheckedReason, type Report } from './report.js';
-import { isShownChange, measurements, pixelOnlyAreas, verdict, type CheckVerdict } from './verdict.js';
+import { effectLines, isShownChange, measurements, pixelOnlyAreas, verdict, type CheckVerdict } from './verdict.js';
 
 export type { CheckVerdict } from './verdict.js';
 
@@ -43,7 +43,15 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
   for (const r of measurements(report)) {
     if (r.rows.length === 0 && r.unverified.size === 0) continue;
     lines.push('', `Measured changes on ${r.route}`);
-    for (const row of r.rows) lines.push(`  - ${row.name}${row.name === row.selector ? '' : ` (${row.selector})`}: ${row.text} — ${row.where}`);
+    const label = (e: { name: string; selector: string }) => `${e.name}${e.name === e.selector ? '' : ` (${e.selector})`}`;
+    for (const row of r.rows) {
+      lines.push(`  - ${label(row)}: ${row.text} — ${row.where}`);
+      const effects = effectLines(row);
+      const own = effects.filter((e) => !e.element);
+      const others = effects.filter((e) => e.element);
+      for (const e of [...own, ...others.slice(0, 3)]) lines.push(`      ${e.element ? `${label(e.element)}: ` : ''}${e.text}`);
+      if (others.length > 3) lines.push(`      …and ${others.length - 3} more effects on other elements in report.json`);
+    }
     if (r.rows.length === 0) lines.push('  none verified');
     if (r.unverified.size) lines.push(`  unverified: ${[...r.unverified].map(([text, why]) => `${text} (${why})`).join('; ')}`);
   }

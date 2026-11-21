@@ -103,11 +103,11 @@ describe('measured style diff in reports and comments', { timeout: 300_000 }, ()
     const cta = report.captures[0].styleDiff!.changes.find((c) => c.name === "link 'Get started'")!;
     assert.match(cta.changes.find((p) => p.property === 'size')!.before + ' → ' + cta.changes.find((p) => p.property === 'size')!.after, /^\d+(\.5)?×40px → \d+(\.5)?×44px$/, 'its size is still measured, as an effect');
     assert.ok(effects(report).length >= 3 && effects(report).every((e) => e.endsWith(`← ${cta.changes.find((p) => p.property === 'padding')!.id}`)), JSON.stringify(effects(report)));
-    assert.deepEqual(report.measured!.filter((g) => g.selector === 'a.cta').map((g) => [g.route, g.kind, g.property, g.variants.map((v) => v.capture)]), [['/', 'cause', 'padding', [report.captures[0].id]]], 'report.json has the same groups, with their kinds and captures');
+    assert.deepEqual(report.measured!.filter((g) => g.selector === 'a.cta').map((g) => [g.route, g.kind, g.property, g.variants.map((v) => v.capture)]), [['/', 'cause', 'padding', [report.captures[0].id]], ['/', 'effect', 'size', [report.captures[0].id]]], 'report.json has the same groups, with their kinds and captures');
     assert.equal(comment.split('\n')[1], '### UI diff (local preview) — 1 measured change on 1 route', 'the verdict is the first line: the padding, its size change follows from it');
     assert.ok(comment.indexOf('#### Measured changes') < comment.indexOf('#### Images'), 'measured changes before the images');
-    assert.match(comment, /#### Measured changes\n\n\*\*`\/`\*\*\n\n- `link 'Get started'` \(`a\.cta`\): padding 8px 14px → 10px 18px — \w+\n\n/);
-    assert.match(comment, /<sub>link 'Get started': size .* · padding 8px 14px → 10px 18px<\/sub>/, 'the zoomed crop says what it shows');
+    assert.match(comment, /#### Measured changes\n\n\*\*`\/`\*\*\n\n- `link 'Get started'` \(`a\.cta`\): padding 8px 14px → 10px 18px — \w+\n {2}- size [^\n]* \(from the padding change\)\n/);
+    assert.match(comment, /<sub>link 'Get started': padding 8px 14px → 10px 18px<\/sub>/, 'the zoomed crop says what was changed, not what followed');
     const { regions, changes } = report.captures[0].styleDiff!;
     const explained = regions.find((r) => r.changes.some((i) => changes[i].name === "link 'Get started'"));
     assert.ok(explained, `a changed area is explained by the button: ${JSON.stringify(regions)}`);

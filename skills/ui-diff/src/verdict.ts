@@ -176,9 +176,9 @@ export function measurements(report: Report): RouteMeasurements[] {
   return out;
 }
 
-/** Every route's counted rows, for report.json. */
+/** Every route's rows, counted and effects alike, for report.json. */
 export function measuredGroups(report: Report): Array<Omit<MeasuredRow, 'effects'> & { route: string }> {
-  return measurements(report).flatMap((r) => r.rows.map(({ effects: _, ...row }) => ({ route: r.route, ...row })));
+  return measurements(report).flatMap((r) => r.rows.flatMap(({ effects, ...row }) => [{ route: r.route, ...row }, ...effects.map(({ effects: _, ...e }) => ({ route: r.route, ...e }))]));
 }
 
 export interface PixelOnlyArea {
@@ -246,3 +246,26 @@ function capitalize(text: string): string {
   return text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
 }
 
+export interface EffectLine {
+  /** Absent for the cause's own element. */
+  element?: { name: string; selector: string };
+  text: string;
+}
+
+/**
+ * What a counted row caused, one line per element: its own size and position first ("size
+ * 109.5×40 → 117.5×48px, moved 8px up (from the padding change)"), then other elements.
+ */
+export function effectLines(row: MeasuredRow): EffectLine[] {
+  const byElement = new Map<string, { element?: { name: string; selector: string }; parts: string[] }>();
+  for (const e of row.effects) {
+    const own = e.name === row.name && e.selector === row.selector;
+    const key = own ? '' : `${e.name}\u0000${e.selector}`;
+    const line = byElement.get(key) ?? { ...(own ? {} : { element: { name: e.name, selector: e.selector } }), parts: [] };
+    line.parts.push(`${e.property === 'size' ? `size ${e.before} → ${e.after}` : e.text}${e.where === row.where ? '' : ` (${e.where})`}`);
+    byElement.set(key, line);
+  }
+  const lines = [...byElement.values()].map((l) => ({ ...(l.element ? { element: l.element } : {}), text: l.parts.join(', ') }));
+  if (lines.length) lines[0].text += ` (from the ${row.property === 'added' || row.property === 'removed' ? `${row.property} element` : `${row.property} change`})`;
+  return lines;
+}

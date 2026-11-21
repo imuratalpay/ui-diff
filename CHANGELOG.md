@@ -33,6 +33,10 @@ cannot be trusted.
   seen on (`desktop, mobile · light, dark`); a value that differs by variant gets one row per value.
   The verdict counts these rows, `check` prints the same ones, and `report.json` keeps them under
   `measured` with the captures of each.
+- Causes are told from effects: only authored changes, and size or position changes nothing
+  measured explains, count. A size, a move, a parent that grew or a sibling that shifted because of
+  a cause is listed under it as its effect, and `report.json` gives every change its kind and every
+  effect its cause.
 - Every changed pixel area is named after the element it is in, with the changes that explain it.
   Areas nothing measured explains are listed apart.
 - Each measured change is verified before it is shown: it needs at least

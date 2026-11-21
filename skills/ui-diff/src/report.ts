@@ -232,9 +232,9 @@ export interface Report {
   /** Set when base and head were captured differently on some capture: what differed, and where. */
   notComparable?: Array<{ key: string; captures: string[] }>;
   /**
-   * Verified measured changes that count (kind cause or unexplained), grouped by route, element,
-   * property and old → new value as the comment lists them; each group keeps the captures it was
-   * seen on.
+   * Every verified measured change grouped by route, element, property and old → new value, as the
+   * comment lists them: kind cause or unexplained for the rows that count, effect (with the id of
+   * the cause's row) for what followed from one; each group keeps the captures it was seen on.
    */
   measured?: Array<Omit<MeasuredRow, 'effects'> & { route: string }>;
   timings?: Timings;

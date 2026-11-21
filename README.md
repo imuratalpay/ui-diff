@@ -251,8 +251,13 @@ most useful first:
 3. **Measured changes**, grouped by route, one row per element, property and `old → new` value,
    biggest element first, each with the variants it was seen on (`desktop, mobile · light, dark`).
    A value that differs by variant (a background that is different in dark mode) gets one row per
-   value. The verdict counts these rows, and `report.json` keeps them under `measured` with the
-   captures of each. Changes that could not
+   value. Only causes count: an authored change (padding, color, text, an added element…), or a
+   size or position change that nothing measured explains. What a cause changed besides itself sits
+   under it in one line, such as `size 109.5×40px → 117.5×48px, moved 4px left (from the padding
+   change)`; effects on other elements (a parent that grew, siblings that moved) follow, collapsed
+   past three. The verdict counts the causes, and `report.json` keeps every row under `measured`
+   with its kind (`cause`, `effect` or `unexplained`), the cause of each effect and the captures of
+   each. Changes that could not
    be verified (matched with less than `styleDiff.minConfidence`, or with no changed pixels under
    them) sit on a small "Unverified" line with the reason; none is dropped.
 4. **Images**: per changed area a still `base | head` pair with the changed boxes outlined and a
