@@ -120,6 +120,25 @@ describe('measured style diff', () => {
     );
   });
 
+  it('leaves out masked elements, border colors without a border, and siblings pushed by a gap change', () => {
+    const row = (gap: string, cta: number, counter: string) => [
+      el({ tag: 'div', selector: 'div.actions', attrs: { id: 'actions' }, box: { x: 0, y: 0, width: 600, height: 40 }, styles: { display: 'flex', gap: [gap, gap] } }),
+      el({ tag: 'a', selector: 'a.cta', attrs: { testid: 'cta' }, parent: 0, box: { x: 0, y: 0, width: cta, height: 40 } }),
+      el({ tag: 'a', selector: 'a.secondary', attrs: { testid: 'secondary' }, parent: 0, box: { x: cta + parseFloat(gap), y: 8, width: 120, height: 24 } }),
+      el({ tag: 'span', selector: '#visitors', attrs: { id: 'visitors' }, ownText: counter, masked: true, box: { x: 0, y: 60, width: 40, height: 20 } }),
+      el({ tag: 'label', selector: 'label', attrs: { id: 'email-label' }, box: { x: 0, y: 100, width: 100, height: 20 }, styles: { color: counter === '500' ? 'rgb(15, 23, 42)' : 'rgb(37, 99, 235)', borderColors: Array(4).fill(counter === '500' ? 'rgb(15, 23, 42)' : 'rgb(37, 99, 235)') } }),
+    ];
+    const changes = diff(row('16px', 134, '500'), row('17px', 142, '900'));
+    assert.deepEqual(
+      changes.map((c) => [c.selector, c.changes.map((p) => p.property)]).sort(),
+      [
+        ['a.cta', ['size']],
+        ['div.actions', ['gap']],
+        ['label', ['color']],
+      ],
+    );
+  });
+
   it('is empty for identical maps', () => {
     const p = page({ padding: ['8px', '14px', '8px', '14px'], radius: '4px', width: 100, height: 36 });
     assert.deepEqual(diff(p, JSON.parse(JSON.stringify(p))), []);

@@ -8,6 +8,8 @@ export interface StyleCollectOptions {
   ignore: string[];
   /** Color strings to normalize besides those found on the page (e.g. token values). */
   extraColors: string[];
+  /** Selectors masked or hidden in the screenshot; elements inside them are flagged `masked`. */
+  masked?: string[];
 }
 
 /**
@@ -18,10 +20,10 @@ export interface StyleCollectOptions {
  */
 export async function collectStyles(page: Page, opts: StyleCollectOptions): Promise<{ snapshot: StyleSnapshot; capped: boolean }> {
   return page.evaluate(
-    ({ max, ignore, extra }) => {
+    ({ max, ignore, extra, masked }) => {
       type Snapshot = { elements: Array<{ styles: { color: string; backgroundColor: string; borderColor: string[]; borderColors?: string[] } }>; capped: boolean };
-      const helpers = (window as unknown as { __uiDiff: { snapshotStyles(m: number, i: string[]): Snapshot; normalizeColors(l: string[]): Record<string, unknown> } }).__uiDiff;
-      const { elements, capped } = helpers.snapshotStyles(max, ignore);
+      const helpers = (window as unknown as { __uiDiff: { snapshotStyles(m: number, i: string[], k: string[]): Snapshot; normalizeColors(l: string[]): Record<string, unknown> } }).__uiDiff;
+      const { elements, capped } = helpers.snapshotStyles(max, ignore, masked);
       const colors = new Set<string>(extra);
       for (const el of elements) {
         colors.add(el.styles.color);
@@ -31,7 +33,7 @@ export async function collectStyles(page: Page, opts: StyleCollectOptions): Prom
       }
       return { snapshot: { elements, colors: helpers.normalizeColors([...colors]) } as unknown as StyleSnapshot, capped };
     },
-    { max: opts.maxElements, ignore: opts.ignore, extra: opts.extraColors },
+    { max: opts.maxElements, ignore: opts.ignore, extra: opts.extraColors, masked: opts.masked ?? [] },
   );
 }
 

@@ -218,7 +218,11 @@ const PAGE_HELPERS = String.raw`
     return true;
   }
   // Visible elements in document order, including open shadow roots; capped says maxElements cut the list short.
-  function snapshotStyles(maxElements, ignore) {
+  function matchesAny(el, selectors) {
+    return selectors.some((s) => { try { return Boolean(el.closest(s)); } catch (e) { return false; } });
+  }
+  function snapshotStyles(maxElements, ignore, masked) {
+    masked = masked || [];
     const out = [];
     const indexOf = new Map();
     const dpr = window.devicePixelRatio || 1;
@@ -261,6 +265,7 @@ const PAGE_HELPERS = String.raw`
         src: withoutOrigin(el.currentSrc || el.getAttribute('src') || undefined),
         attrs: { testid, id: el.id || undefined, ariaLabel },
         parent,
+        masked: masked.length && matchesAny(el, masked) ? true : undefined,
         deviceBox: { x: Math.round(box.x * dpr), y: Math.round(box.y * dpr), width: Math.round(box.width * dpr), height: Math.round(box.height * dpr) },
         styles: {
           color: cs.color,

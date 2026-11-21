@@ -419,7 +419,8 @@ export class CaptureSession {
       if (shot.frozeTimers) record.frozeTimers = true;
       if (target.styles) {
         const stylesStart = performance.now();
-        const { snapshot, capped } = await collectStyles(page, { maxElements: cfg.capture.styleMaxElements, ignore: cfg.tokens.ignoreSelectors, extraColors: target.styles.extraColors });
+        const masked = [...cfg.capture.mask, ...target.route.mask, ...cfg.capture.hide, ...target.route.hide, ...(cfg.capture.hideDevOverlays ? DEV_OVERLAY_SELECTORS : [])];
+        const { snapshot, capped } = await collectStyles(page, { maxElements: cfg.capture.styleMaxElements, ignore: cfg.tokens.ignoreSelectors, extraColors: target.styles.extraColors, masked });
         mkdirSync(path.dirname(target.styles.file), { recursive: true });
         writeFileSync(target.styles.file, JSON.stringify(snapshot));
         record.stylesFile = target.styles.file;

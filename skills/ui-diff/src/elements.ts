@@ -228,7 +228,9 @@ function family(value: string): string {
 function measured(e: StyledElement, colors: StyleSnapshot['colors']): Array<[string, ChangeGroup, Measure | undefined]> {
   const s = e.styles;
   const text = (value: string | undefined): Measure | undefined => (value === undefined ? undefined : { value, exact: value });
-  const borderColors = s.borderColors?.map((c) => colorOf(c, colors)!);
+  // A border color without a border (width 0) is only the text color again.
+  const bordered = !s.borderWidth || s.borderWidth.some((w) => parseFloat(w) > 0);
+  const borderColors = bordered ? s.borderColors?.map((c) => colorOf(c, colors)!) : undefined;
   return [
     ['padding', 'box', sides(s.padding)],
     ['margin', 'box', e.autoMarginX ? sides([s.margin[0], 'auto', s.margin[2], 'auto']) : sides(s.margin)],
@@ -277,6 +279,7 @@ export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: El
 
   for (const pair of match.pairs) {
     const [b, h] = [base.elements[pair.base], head.elements[pair.head]];
+    if (b.masked || h.masked) continue;
     const [mb, mh] = [measured(b, base.colors), measured(h, head.colors)];
     const changes: PropertyChange[] = [];
     mb.forEach(([property, group, before], i) => {
@@ -333,11 +336,18 @@ export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: El
     if (moved && !reordered.has(hi)) {
       // Pushed by an earlier sibling that changed size, or by one that was added or removed: a consequence.
       const siblings = (childrenOf.get(h.parent ?? null) ?? []).filter((s) => s < hi);
-      const grew = siblings.reduce((acc, s) => {
-        const sr = raw.get(s);
-        if (!baseOf.has(s)) return { w: Infinity, h: Infinity };
-        return sr ? { w: acc.w + Math.abs(sr.dw), h: acc.h + Math.abs(sr.dh) } : acc;
-      }, { w: 0, h: 0 });
+      // The parent's gap and padding move its children too.
+      const [pb, ph] = [b.parent != null ? base.elements[b.parent] : undefined, h.parent != null ? head.elements[h.parent] : undefined];
+      const delta = (pick: (e: StyledElement) => string[] | undefined, i: number) => (pb && ph ? Math.abs(parseFloat(pick(ph)?.[i] ?? '0') - parseFloat(pick(pb)?.[i] ?? '0')) || 0 : 0);
+      const gapDelta = Math.max(delta((e) => e.styles.gap, 0), delta((e) => e.styles.gap, 1));
+      const grew = siblings.reduce(
+        (acc, s) => {
+          const sr = raw.get(s);
+          if (!baseOf.has(s)) return { w: Infinity, h: Infinity };
+          return sr ? { w: acc.w + Math.abs(sr.dw), h: acc.h + Math.abs(sr.dh) } : acc;
+        },
+        { w: delta((e) => e.styles.padding, 3) + gapDelta * siblings.length, h: delta((e) => e.styles.padding, 0) + gapDelta * siblings.length },
+      );
       const removedBefore = match.removed.some((ri) => base.elements[ri].parent === b.parent && ri < r.pair.base);
       const pushed = removedBefore || (Math.abs(r.dx) <= grew.w + 0.5 && Math.abs(r.dy) <= grew.h + 0.5);
       if (!pushed) {
@@ -358,7 +368,7 @@ export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: El
     const set = new Set(indices);
     for (const i of indices) {
       const e = list[i];
-      if (e.parent != null && set.has(e.parent)) continue;
+      if (e.masked || (e.parent != null && set.has(e.parent))) continue;
       let inside = 0;
       for (const j of indices) for (let p = list[j].parent; p != null; p = list[p].parent) if (p === i) inside++;
       const area = e.box.width * e.box.height;
