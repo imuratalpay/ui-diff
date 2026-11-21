@@ -88,8 +88,9 @@ cannot be trusted.
 
 ### Install
 
-- `npx` runs ui-diff from a packed tarball or a clean copy of the skill folder: dependencies are
-  found where npm installed them, and the package builds on `npm pack` instead of on install.
+- ui-diff runs from a packed tarball or a clean copy of the skill folder: dependencies are found
+  wherever they were installed, and the package is built when it is packed, not when it is
+  installed.
 
 ## 0.1.0
 

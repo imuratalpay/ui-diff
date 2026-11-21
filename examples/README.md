@@ -43,4 +43,4 @@ node $SKILL/bin/ui-diff.mjs publish --config $CFG --pr 1 --remote /tmp/assets.gi
 ## `workflows/ui-diff.yml`
 
 GitHub Actions workflow for an app repository: runs ui-diff on every PR push and updates the
-sticky comment with the automatic summary. See the comments in the file.
+sticky comment, which leads with the verdict and the measured changes. See the comments in the file.

@@ -75,7 +75,8 @@ If something fails, see [Troubleshooting](#troubleshooting).
    10px 18px` instead of only "N pixels changed". Each measured change is checked against the
    match confidence and the changed pixels before it is shown.
 6. **Writes a UX summary**: the agent writes it from the images and measurements (a data-driven
-   fallback summary is generated for CI).
+   draft is written to `.ui-diff/summary.auto.md`; without a summary the comment leads with the
+   verdict and the measured changes).
 7. **Creates or updates one PR comment** via `gh`, found by a hidden marker, that starts with the
    verdict ([The comment](#the-comment)). Reruns edit it in place; nothing stacks.
 
@@ -287,7 +288,8 @@ for the comment). A `preflight` job runs `ui-diff detect` with only ui-diff's ow
 app install, no browser) and prints a `status`; when nothing maps to a route the run ends there,
 successfully, and the capture job (app install, browser, `run`, `publish`) is skipped. It expects
 the skill committed into the app repository (`./install.sh --claude --project <app>`), skips fork
-PRs, and uses the automatic summary. On PRs whose changed files include no UI file it posts
+PRs, and posts without a written summary, so its comments lead with the verdict and the measured
+changes. On PRs whose changed files include no UI file it posts
 nothing; on a sticky comment from an earlier push only the top line changes, to "no UI files
 changed in <sha>", and the last result with UI changes stays below it, collapsed.
 The capture job restores and saves the [base cache](#base-cache) under the key `ui-diff cache-key`
@@ -406,8 +408,8 @@ The common cases, with fixes, are in
 cd skills/ui-diff
 npm install
 npm run typecheck          # tsc (TypeScript 7) over src, tests and scripts
-npm test                   # unit tests (node:test + tsx), ~3 s
-npm run test:integration   # full pipeline with Chromium on throwaway repos, ~1 min
+npm test                   # unit tests (node:test + tsx), ~10 s
+npm run test:integration   # full pipeline with Chromium on throwaway repos, ~6 min
 npm run schema             # regenerate schema/ui-diff.config.schema.json from the zod schema
 ```
 

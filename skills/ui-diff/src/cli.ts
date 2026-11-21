@@ -94,7 +94,8 @@ prune
 
 type Values = Record<string, string | boolean | string[] | undefined>;
 
-function parse(argv: string[]): { command: string; values: Values } {
+/** Parses the arguments; throws on an unknown option, so docs can be checked against it. */
+export function parse(argv: string[]): { command: string; values: Values } {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -637,6 +638,12 @@ async function cmdDoctor(values: Values): Promise<void> {
   print({ ok: doctorOk(checks), checks });
 }
 
+function commands(): Record<(typeof COMMANDS)[number], (v: Values) => Promise<void | number>> {
+  return { init: cmdInit, doctor: cmdDoctor, detect: cmdDetect, 'cache-key': cmdCacheKey, run: cmdRun, check: cmdCheck, render: cmdRender, publish: cmdPublish, prune: cmdPrune };
+}
+
+export const COMMANDS = ['init', 'doctor', 'detect', 'cache-key', 'run', 'check', 'render', 'publish', 'prune'] as const;
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   let command = 'help';
   try {
@@ -651,8 +658,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       process.stdout.write(`${VERSION}\n`);
       return 0;
     }
-    const commands: Record<string, (v: Values) => Promise<void | number>> = { init: cmdInit, doctor: cmdDoctor, detect: cmdDetect, 'cache-key': cmdCacheKey, run: cmdRun, check: cmdCheck, render: cmdRender, publish: cmdPublish, prune: cmdPrune };
-    const fn = commands[command];
+    const fn = (commands() as Record<string, ((v: Values) => Promise<void | number>) | undefined>)[command];
     if (!fn) throw new UiDiffError(`Unknown command "${command}"`, { hint: 'Run `ui-diff help`.' });
     const code = await fn(parsed.values);
     return typeof code === 'number' ? code : 0;
