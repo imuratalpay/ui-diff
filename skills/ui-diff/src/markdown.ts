@@ -56,10 +56,12 @@ function captureHeading(c: CaptureResult, themes: number): string {
   return `**${code(c.route.path)}** · ${c.viewport}${themes > 1 || c.theme !== 'light' ? ` · ${c.theme}` : ''}`;
 }
 
-let imagesEnabled = true;
+function imagesOn(opts: RenderOptions): boolean {
+  return opts.images !== false;
+}
 
-function img(src: string, alt: string, width?: number): string {
-  if (!imagesEnabled) return `_${escapeHtml(alt)} — image not uploaded_`;
+function img(opts: RenderOptions, src: string, alt: string, width?: number): string {
+  if (!imagesOn(opts)) return `_${escapeHtml(alt)} — image not uploaded_`;
   return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${width ? ` width="${width}"` : ''}>`;
 }
 
@@ -91,16 +93,16 @@ function changedSection(report: Report, captures: CaptureResult[], opts: RenderO
     out.push('');
     const alt = `${captureLabel(c, themes)}: before, after and highlighted diff`;
     if (c.images.focus.length && (opts.compact ?? 0) < 3) {
-      for (const f of c.images.focus) out.push(img(opts.link(f), `${alt} (zoomed)`), '');
+      for (const f of c.images.focus) out.push(img(opts, opts.link(f), `${alt} (zoomed)`), '');
       if (c.images.compare && (opts.compact ?? 0) < 1) {
-        out.push('<details><summary>Full page</summary>', '', img(opts.link(c.images.compare), alt), '', '</details>', '');
+        out.push('<details><summary>Full page</summary>', '', img(opts, opts.link(c.images.compare), alt), '', '</details>', '');
       }
     } else if (c.images.compare) {
-      out.push(img(opts.link(c.images.compare), alt), '');
+      out.push(img(opts, opts.link(c.images.compare), alt), '');
     } else if (c.status === 'removed' && c.images.base) {
-      out.push(img(opts.link(c.images.base), `${captureLabel(c, themes)} (base; missing on head)`, 480), '');
+      out.push(img(opts, opts.link(c.images.base), `${captureLabel(c, themes)} (base; missing on head)`, 480), '');
     } else if (c.images.head) {
-      out.push(img(opts.link(c.images.head), `${captureLabel(c, themes)} (head)`, 480), '');
+      out.push(img(opts, opts.link(c.images.head), `${captureLabel(c, themes)} (head)`, 480), '');
     }
     for (const w of c.warnings.slice(0, INLINE_WARNINGS)) out.push(`> ${w}`, '');
   }
@@ -164,11 +166,11 @@ function variantSection(report: Report, opts: RenderOptions): string[] {
     for (const item of group.items) out.push(`<th>${escapeHtml(`${group.param}=${item.value}`)}</th>`);
     out.push('</tr><tr>');
     for (const item of group.items) {
-      if (item.image && !imagesEnabled) {
-        out.push(`<td valign="top">${img('', `${group.param}=${item.value}`)}</td>`);
+      if (item.image && !imagesOn(opts)) {
+        out.push(`<td valign="top">${img(opts, '', `${group.param}=${item.value}`)}</td>`);
       } else if (item.image) {
         const href = escapeHtml(opts.link(item.image));
-        out.push(`<td valign="top"><a href="${href}">${img(opts.link(item.image), `${group.route.path} ${group.param}=${item.value}`, width)}</a></td>`);
+        out.push(`<td valign="top"><a href="${href}">${img(opts, opts.link(item.image), `${group.route.path} ${group.param}=${item.value}`, width)}</a></td>`);
       } else {
         out.push(`<td valign="top">capture failed: ${escapeHtml(item.error ?? 'unknown')}</td>`);
       }
@@ -193,9 +195,9 @@ function motionSection(report: Report, opts: RenderOptions): string[] {
       out.push(`> clip failed: ${clip.error}`, '');
       continue;
     }
-    if (clip.gif) out.push(img(opts.link(clip.gif), `${clip.route.path} motion: before and after`), '');
+    if (clip.gif) out.push(img(opts, opts.link(clip.gif), `${clip.route.path} motion: before and after`), '');
     for (const w of clip.warnings ?? []) out.push(`> ⚠️ ${escapeText(w)}`, '');
-    const links = imagesEnabled
+    const links = imagesOn(opts)
       ? [clip.webm?.base && `[before.webm](${opts.link(clip.webm.base)})`, clip.webm?.head && `[after.webm](${opts.link(clip.webm.head)})`].filter(Boolean)
       : [];
     if (links.length) out.push(links.join(' · '), '');
@@ -340,17 +342,12 @@ export function noUiChangeComment(report: Report, opts: { id: string; title: str
 /** Renders the sticky PR comment, dropping detail in tiers until it fits GitHub's size limit. */
 export function renderComment(report: Report, opts: RenderOptions): string {
   const max = opts.maxLength ?? MAX_COMMENT_LENGTH;
-  imagesEnabled = opts.images !== false;
-  try {
-    let body = '';
-    for (let compact = opts.compact ?? 0; compact <= 3; compact++) {
-      body = renderOnce(report, { ...opts, compact });
-      if (body.length <= max) return body;
-    }
-    return `${body.slice(0, max - 200)}\n\n<sub>Truncated to fit GitHub’s comment size limit.</sub>\n${stickyMarker(opts.id)}\n`;
-  } finally {
-    imagesEnabled = true;
+  let body = '';
+  for (let compact = opts.compact ?? 0; compact <= 3; compact++) {
+    body = renderOnce(report, { ...opts, compact });
+    if (body.length <= max) return body;
   }
+  return `${body.slice(0, max - 200)}\n\n<sub>Truncated to fit GitHub’s comment size limit.</sub>\n${stickyMarker(opts.id)}\n`;
 }
 
 /** Report-relative image paths referenced by the comment (what needs uploading). */

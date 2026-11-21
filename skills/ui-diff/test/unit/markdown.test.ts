@@ -60,6 +60,17 @@ describe('comment rendering', () => {
     assert.match(body, /image not uploaded/);
   });
 
+  it('keeps a text-only render text-only when another render runs meanwhile', () => {
+    const report = sampleReport();
+    const nested = (p: string) => {
+      renderComment(report, { id: 'other', title: 'UI diff', link, images: true });
+      return link(p);
+    };
+    const body = renderComment(report, { id: 'default', title: 'UI diff', link: nested, images: false });
+    assert.doesNotMatch(body, /<img /);
+    assert.match(renderComment(report, { id: 'default', title: 'UI diff', link }), /<img /);
+  });
+
   it('lists exactly the images it references', () => {
     const refs = referencedImages(sampleReport(), { id: 'default', title: 'UI diff' });
     assert.deepEqual(refs.sort(), ['compare/home__desktop__light.png', 'compare/home__desktop__light__focus-1.png', 'motion/home.gif', 'variants/hero-1.png', 'variants/hero-2.png']);
