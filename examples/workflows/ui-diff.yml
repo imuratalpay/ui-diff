@@ -6,6 +6,16 @@ name: ui-diff
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    # Optional: let GitHub skip the whole workflow when no file that can change the UI changed.
+    # The list mirrors ui-diff's detect.include defaults plus the dependency files and the config;
+    # keep it in sync if you change detect.include. Two caveats: a required check whose workflow
+    # GitHub skips this way stays "Expected" and blocks the merge (the preflight job below has no
+    # such problem), and a PR that drops its last UI change keeps its old ui-diff comment.
+    # paths:
+    #   - '**/*.{html,htm,css,scss,sass,less,styl,pcss,vue,svelte,astro,jsx,tsx,mdx,js,ts,mjs,cjs}'
+    #   - '**/*.{svg,png,jpg,jpeg,gif,webp,avif,ico,woff,woff2,ttf,otf}'
+    #   - '**/*.json'
+    #   - '**/{pnpm-lock.yaml,yarn.lock,bun.lock,bun.lockb}'
 
 permissions:
   contents: write # push screenshots to the ui-diff-assets branch of this repository
@@ -15,15 +25,61 @@ concurrency:
   group: ui-diff-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  SKILL: .claude/skills/ui-diff
+  GH_TOKEN: ${{ github.token }}
+
 jobs:
-  ui-diff:
+  # Decides whether anything needs capturing. Needs only git history and ui-diff's own
+  # dependencies: no app install and no browser, so a PR without UI changes costs seconds.
+  preflight:
     # Fork PRs get a read-only token; skip them instead of using pull_request_target,
     # which would run untrusted code with a write token.
     if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    env:
-      SKILL: .claude/skills/ui-diff
-      GH_TOKEN: ${{ github.token }}
+    outputs:
+      status: ${{ steps.detect.outputs.status }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ui-diff-npm-${{ hashFiles(format('{0}/package-lock.json', env.SKILL)) }}
+
+      - name: Install ui-diff (no app dependencies, no browser)
+        run: npm --prefix "$SKILL" ci --no-audit --no-fund
+
+      # status: "capture" (routes to capture), "nothing-mapped" (UI files that match no route)
+      # or "no-ui-changes".
+      - name: Detect changed UI
+        id: detect
+        run: |
+          node "$SKILL/bin/ui-diff.mjs" detect --quiet \
+            --base "origin/${{ github.base_ref }}" --head "${{ github.event.pull_request.head.sha }}" > "$RUNNER_TEMP/detect.json"
+          echo "status=$(jq -r .status "$RUNNER_TEMP/detect.json")" >> "$GITHUB_OUTPUT"
+
+      # Nothing to capture, so the run ends here, successfully. run stops after detection (no app,
+      # no browser). publish then posts nothing when no UI file changed, updates an existing
+      # comment to say so, or posts "nothing checked" for UI files that match no route.
+      - name: Report without capturing
+        if: steps.detect.outputs.status != 'capture'
+        run: |
+          node "$SKILL/bin/ui-diff.mjs" run --quiet \
+            --base "origin/${{ github.base_ref }}" --head "${{ github.event.pull_request.head.sha }}"
+          node "$SKILL/bin/ui-diff.mjs" publish --quiet --pr ${{ github.event.pull_request.number }}
+
+  ui-diff:
+    needs: preflight
+    if: needs.preflight.outputs.status == 'capture'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -75,8 +131,6 @@ jobs:
         # env:
         #   VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
 
-      # When no changed file is a UI file, publish posts nothing; a sticky comment left by an earlier
-      # push is reduced to one line ("no UI files changed in <sha>") so its old screenshots go away.
       - name: Publish the sticky comment
         run: node "$SKILL/bin/ui-diff.mjs" publish --pr ${{ github.event.pull_request.number }}
 

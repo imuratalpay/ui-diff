@@ -182,12 +182,15 @@ Every command prints JSON on stdout (logs go to stderr), so agents can parse res
 
 ### CI
 
-[`examples/workflows/ui-diff.yml`](examples/workflows/ui-diff.yml) runs `run` and `publish` on
-every PR push with the repository's own `GITHUB_TOKEN` (`contents: write` for the assets branch,
-`pull-requests: write` for the comment). It expects the skill committed into the app repository
-(`./install.sh --claude --project <app>`), skips fork PRs, and uses the automatic summary. On PRs
-whose changed files include no UI file it posts nothing; a sticky comment from an earlier push is
-reduced to a one-line "no UI files changed" note.
+[`examples/workflows/ui-diff.yml`](examples/workflows/ui-diff.yml) runs on every PR push with the
+repository's own `GITHUB_TOKEN` (`contents: write` for the assets branch, `pull-requests: write`
+for the comment). A `preflight` job runs `ui-diff detect` with only ui-diff's own dependencies (no
+app install, no browser) and prints a `status`; when nothing maps to a route the run ends there,
+successfully, and the capture job (app install, browser, `run`, `publish`) is skipped. It expects
+the skill committed into the app repository (`./install.sh --claude --project <app>`), skips fork
+PRs, and uses the automatic summary. On PRs whose changed files include no UI file it posts
+nothing; a sticky comment from an earlier push is reduced to a one-line "no UI files changed" note.
+The workflow also documents an optional `paths:` filter for skipping the workflow on GitHub's side.
 
 ## Configure
 

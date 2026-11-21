@@ -54,7 +54,8 @@ git status --short
 node "$SKILL/bin/ui-diff.mjs" detect --pr <n>
 ```
 
-It maps changed files to routes through `routes[].files` and `globalFiles` in the config, then
+Its JSON starts with `status`: `capture` (routes to capture), `nothing-mapped` (UI files that match
+no route) or `no-ui-changes`. It maps changed files to routes through `routes[].files` and `globalFiles` in the config, then
 framework conventions (Next.js, SvelteKit, Nuxt, Astro, Remix, TanStack Router, plain HTML) and an import graph
 (relative imports, tsconfig aliases, package.json `#` imports, workspace packages, CSS `@import`/`url()`, HTML `href`/`src`).
 The JSON lists each route with `reasons` and `confidence`, plus:

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseConfig } from '../../src/config.js';
-import { mapChangesToRoutes } from '../../src/detect.js';
+import { detectStatus, mapChangesToRoutes } from '../../src/detect.js';
 import type { ChangedFile } from '../../src/git.js';
 import { aliasesFromPackageImports, aliasesFromTsconfig, extractSpecifiers, resolveSpecifier } from '../../src/imports.js';
 
@@ -129,5 +129,14 @@ describe('imports', () => {
     };
     const result = await mapChangesToRoutes({ cfg, changed: changed('src/components/hero.tsx'), headFiles: Object.keys(files), readFiles: reader(files) });
     assert.deepEqual(result.routes.map((r) => r.route.path), ['/pricing']);
+  });
+});
+
+describe('detect status', () => {
+  it('says whether a run would capture, report unmapped UI files, or have nothing to do', () => {
+    const route = { route: { path: '/' } } as unknown as Parameters<typeof detectStatus>[0]['routes'][number];
+    assert.equal(detectStatus({ routes: [route], uiFiles: ['index.html'] }), 'capture');
+    assert.equal(detectStatus({ routes: [], uiFiles: ['src/widgets/Chart.tsx'] }), 'nothing-mapped');
+    assert.equal(detectStatus({ routes: [], uiFiles: [] }), 'no-ui-changes');
   });
 });

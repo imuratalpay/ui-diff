@@ -320,8 +320,21 @@ export async function detectChanges(cfg: ResolvedConfig, opts: { base?: string; 
   };
 }
 
+/**
+ * What a run would do with this change: capture routes, report UI files it could not map
+ * ("nothing checked"), or nothing at all. CI preflight jobs branch on it.
+ */
+export type DetectStatus = 'capture' | 'nothing-mapped' | 'no-ui-changes';
+
+export function detectStatus(result: Pick<MappingResult, 'routes' | 'uiFiles'>): DetectStatus {
+  if (result.routes.length) return 'capture';
+  if (result.uiFiles.length) return 'nothing-mapped';
+  return 'no-ui-changes';
+}
+
 export function detectSummary(result: DetectResult): Record<string, unknown> {
   return {
+    status: detectStatus(result),
     base: result.base,
     head: result.head,
     mergeBase: result.mergeBase,
