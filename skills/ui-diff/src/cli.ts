@@ -1,9 +1,11 @@
+import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { chromium } from 'playwright';
 import { resolveBrowser } from './capture.js';
+import { CHECK_EXIT, checkSummary } from './check.js';
 import { CONFIG_FILENAME, loadConfig, type ResolvedConfig } from './config.js';
 import { inferFromPath } from './conventions.js';
 import { detectChanges, detectSummary } from './detect.js';
@@ -29,6 +31,8 @@ Commands
   doctor      Check git, gh, Playwright and the config
   detect      List changed UI files and the routes they affect
   run         Capture base and head, diff them and write .ui-diff/report.json
+  check       Diff your working tree against the merge base locally; prints a summary, posts nothing
+              (exit 0: no visual changes, 1: changes, 2: errors)
   cache-key   Print the base cache key a run would use (for actions/cache)
   render      Render the PR comment locally (with your summary) without uploading anything
   publish     Upload images to the private assets branch and create/update the sticky PR comment
@@ -57,6 +61,12 @@ detect / run
   --a11y                 Accessibility delta: new and fixed axe issues, focus order
   --keep-worktrees       Keep the temporary worktrees for inspection
   --no-cache             Capture base again instead of reusing it from the base cache (.ui-diff/cache)
+
+check (also takes the run options except --pr, --head and the preview URLs)
+  --base <ref>           Compare with this ref (default: the merge base with the default branch)
+  --out <dir>            Output directory (default: <repo>/.ui-diff/out)
+  --json                 Print the summary as JSON instead of text
+  --open                 Open the local HTML report if there is one
 
 render
   --summary <file>       UX summary markdown (default: .ui-diff/summary.md when present)
@@ -115,6 +125,8 @@ function parse(argv: string[]): { command: string; values: Values } {
       'no-upload': { type: 'boolean' },
       'no-comment': { type: 'boolean' },
       'no-cache': { type: 'boolean' },
+      json: { type: 'boolean' },
+      open: { type: 'boolean' },
       'allow-public-repo': { type: 'boolean' },
       'assume-private': { type: 'boolean' },
       remote: { type: 'string' },
@@ -159,6 +171,51 @@ async function prRefs(values: Values, root: string): Promise<{ base?: string; he
   log.step(`PR #${pr.number}: ${pr.baseRefName} ← ${pr.headRefName} (${pr.headRefOid.slice(0, 7)})`);
   await exec('git', ['fetch', '--no-tags', '--quiet', 'origin', pr.baseRefName, `refs/pull/${pr.number}/head`], { cwd: root, allowFailure: true });
   return { base: (values.base as string | undefined) ?? `origin/${pr.baseRefName}`, head: (values.head as string | undefined) ?? pr.headRefOid, pr: pr.number };
+}
+
+/**
+ * The working tree (uncommitted changes included) against the merge base, captured and diffed like
+ * a PR run, with a terminal summary. Never posts or pushes. Exit 0, 1 or 2 (see CHECK_EXIT).
+ */
+async function cmdCheck(values: Values): Promise<number> {
+  for (const flag of ['pr', 'head', 'base-url', 'head-url'] as const) {
+    if (values[flag]) throw new UiDiffError(`check compares your working tree, so --${flag} does not apply`, { hint: 'Use `ui-diff run` to compare commits, a PR or deployed previews.', exitCode: CHECK_EXIT.error });
+  }
+  const root = await repoRoot(process.cwd());
+  const cfg = loadConfig(root, process.cwd(), values.config as string | undefined);
+  const outDir = path.resolve(process.cwd(), (values.out as string | undefined) ?? path.join(root, '.ui-diff', 'out'));
+  const outcome = await runPipeline({
+    cfg,
+    outDir,
+    base: values.base as string | undefined,
+    routes: list(values.routes),
+    allRoutes: Boolean(values['all-routes']),
+    viewports: list(values.viewports),
+    themes: list(values.themes),
+    variants: values.variants as string[] | undefined,
+    motion: Boolean(values.motion) || Boolean(values['motion-all']),
+    motionAll: Boolean(values['motion-all']),
+    tokens: list(values.tokens),
+    a11y: Boolean(values.a11y),
+    keepWorktrees: Boolean(values['keep-worktrees']),
+    cache: !values['no-cache'],
+  });
+  const summary = checkSummary(outcome.report, outDir);
+  if (values.json) print({ verdict: summary.verdict, exitCode: summary.exitCode, report: path.relative(process.cwd(), outcome.reportFile), stats: outcome.report.stats, timing: outcome.report.timings ? timingLine(outcome.report.timings) : undefined });
+  else process.stdout.write(summary.text);
+  if (values.open) openHtmlReport(outDir);
+  return summary.exitCode;
+}
+
+/** Opens report.html from the output folder when one exists; check never builds one. */
+function openHtmlReport(outDir: string): void {
+  const html = path.join(outDir, 'report.html');
+  if (!existsSync(html)) {
+    log.info(`no HTML report in ${path.relative(process.cwd(), outDir) || '.'}, so nothing to open; see comment.local.md and compare/`);
+    return;
+  }
+  const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
+  spawn(opener, [html], { detached: true, stdio: 'ignore' }).on('error', () => log.warn(`could not open ${html} with ${opener}`)).unref();
 }
 
 async function cmdCacheKey(values: Values): Promise<void> {
@@ -592,11 +649,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       process.stdout.write(`${VERSION}\n`);
       return 0;
     }
-    const commands: Record<string, (v: Values) => Promise<void>> = { init: cmdInit, doctor: cmdDoctor, detect: cmdDetect, 'cache-key': cmdCacheKey, run: cmdRun, render: cmdRender, publish: cmdPublish, prune: cmdPrune };
+    const commands: Record<string, (v: Values) => Promise<void | number>> = { init: cmdInit, doctor: cmdDoctor, detect: cmdDetect, 'cache-key': cmdCacheKey, run: cmdRun, check: cmdCheck, render: cmdRender, publish: cmdPublish, prune: cmdPrune };
     const fn = commands[command];
     if (!fn) throw new UiDiffError(`Unknown command "${command}"`, { hint: 'Run `ui-diff help`.' });
-    await fn(parsed.values);
-    return 0;
+    const code = await fn(parsed.values);
+    return typeof code === 'number' ? code : 0;
   } catch (error) {
     killAllServers();
     if (error instanceof UiDiffError) {
@@ -606,6 +663,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       log.error(redact((error as Error).stack ?? String(error)));
     }
     for (const note of notesAfter(error)) log.warn(note);
+    // check promises 0/1 for its verdict, so every failure is 2.
+    if (command === 'check') return CHECK_EXIT.error;
     return error instanceof UiDiffError ? error.exitCode : 1;
   }
 }

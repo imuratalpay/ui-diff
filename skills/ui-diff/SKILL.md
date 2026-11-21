@@ -43,8 +43,11 @@ git status --short
   blocks a run; WARN (no gh login, no remote) only matters for publishing or `--pr`.
 - **Posting to a PR:** pass `--pr <n>` so head is the pushed commit. Mention uncommitted or unpushed
   work, because it will not appear.
-- **Checking work in progress:** omit `--head`; the working tree (including uncommitted changes)
-  is snapshotted into a worktree and labelled as such.
+- **Checking work in progress:** `node "$SKILL/bin/ui-diff.mjs" check` diffs the working tree
+  (uncommitted changes included) against the merge base with the default branch (`--base <ref>`
+  to change it), prints a short summary with the measured changes, writes `.ui-diff/out/` and
+  posts nothing; exit 0 no visual changes, 1 changes, 2 errors (`--json` for JSON). `run` without
+  `--head` does the same into `.ui-diff/` for a later `publish`.
 - **Deployed previews:** pass `--base-url` / `--head-url` (or `preview` in the config). For
   protected previews configure `auth` once; see `references/privacy.md`.
 

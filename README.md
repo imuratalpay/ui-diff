@@ -38,7 +38,7 @@ alias ui-diff='node ~/src/ui-diff/skills/ui-diff/bin/ui-diff.mjs'
 
 cd ~/src/my-app        # on your feature branch
 ui-diff init           # writes ui-diff.config.json: check startCommand and routes
-ui-diff run            # your branch, uncommitted changes included, vs the default branch
+ui-diff check          # your working tree vs the merge base: a short summary, nothing posted
 ```
 
 The first `run` downloads Chromium (~150 MB). Results are in `.ui-diff/`: open
@@ -166,6 +166,7 @@ cd ~/src/my-app
 ui-diff init                         # suggest ui-diff.config.json (start command, routes)
 ui-diff doctor                       # git, gh, browser, config, repo visibility
 ui-diff detect --pr 123              # changed UI files → routes, with reasons
+ui-diff check                        # working tree vs merge base; exit 0 no changes, 1 changes, 2 errors
 ui-diff run --pr 123                 # capture + diff → .ui-diff/report.json and images
 $EDITOR .ui-diff/summary.md          # your UX summary (start from .ui-diff/summary.auto.md)
 ui-diff render                       # preview the final comment: .ui-diff/comment.preview.md
@@ -186,7 +187,10 @@ VERCEL_AUTOMATION_BYPASS_SECRET=… ui-diff run --base-url https://app-git-main-
   --head-url https://app-git-feature-acme.vercel.app --routes /,/pricing
 ```
 
-Every command prints JSON on stdout (logs go to stderr), so agents can parse results.
+Every command prints JSON on stdout (logs go to stderr), so agents can parse results; `check`
+prints a short text summary instead unless you pass `--json`. Its report and images go to
+`.ui-diff/out/`, and its exit code (0 no visual changes, 1 changes, 2 errors) can gate a pre-push
+hook: `ui-diff check --quiet || exit 1` in `.git/hooks/pre-push`.
 
 ### CI
 
