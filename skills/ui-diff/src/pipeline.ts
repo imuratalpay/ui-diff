@@ -9,7 +9,7 @@ import { CaptureSession, ensureBrowser, frozenTime, launchBrowser, resolveBrowse
 import { parseVariantFlag, pickThemes, pickViewports, resolveRoute, type ResolvedConfig, type ResolvedRoute, type Step, type ThemeConfig, type VariantSpec, type ViewportConfig } from './config.js';
 import { detectChanges, resolveBaseRef, type DetectResult } from './detect.js';
 import { blinkFrames, clipToFocus, composeCompare, composePair, diffPngs, focusBoxes } from './diff.js';
-import { diffElements, explainRegions, matchElements, verifyChanges } from './elements.js';
+import { diffElements, explainRegions, matchElements, onlyEffects, verifyChanges } from './elements.js';
 import { changedLines, git, gitCommonDir, mergeBase, revParse, shortSha } from './git.js';
 import { COLORS, composeRow, readPng, resizeToWidth, writePng, type Box } from './image.js';
 import { captureKey, keyId, type CaptureKey } from './key.js';
@@ -675,6 +675,9 @@ function diffStage(plans: Plan[], records: Map<string, CaptureRecord>, ctx: { ba
  * Element-level explanation of each capture: base and head element maps matched, their measured
  * style differences, and each changed pixel area named after its element.
  */
+/** Elements kept per capture whose every change is an effect of a kept cause. */
+const EFFECTS_KEPT = 200;
+
 function styleDiffStage(captures: CaptureResult[], records: Map<string, CaptureRecord>, cfg: ResolvedConfig): void {
   const read = (file: string | undefined) => (file && existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as StyleSnapshot) : undefined);
   for (const c of captures) {
@@ -683,14 +686,18 @@ function styleDiffStage(captures: CaptureResult[], records: Map<string, CaptureR
     if (!base || !head) continue;
     const match = matchElements(base.elements, head.elements);
     const all = diffElements(base, head, match, { focusOnly: c.regions?.focusOnly });
-    const kept = all.slice(0, cfg.styleDiff.maxChanges);
+    // maxChanges limits the elements that count; effects stay when their cause does.
+    const counted = all.filter((x) => !onlyEffects(x));
+    const top = counted.slice(0, cfg.styleDiff.maxChanges);
+    const ids = new Set(top.flatMap((x) => [x.id, ...x.changes.map((p) => p.id)]));
+    const kept = [...top, ...all.filter((x) => onlyEffects(x) && x.changes.every((p) => ids.has(p.cause))).slice(0, EFFECTS_KEPT)];
     const regions = c.diff ? explainRegions(c.diff.regions, c.diff.scale, head, base, kept) : [];
     verifyChanges(kept, c.status === 'changed' ? (c.diff?.regions ?? []) : [], cfg.styleDiff.minConfidence);
     const count = (level: string) => match.pairs.filter((p) => p.confidence === level).length;
     c.styleDiff = {
       matched: { high: count('high'), medium: count('medium'), low: count('low') },
       changes: kept,
-      ...(all.length > kept.length ? { omitted: all.length - kept.length } : {}),
+      ...(counted.length > top.length ? { omitted: counted.length - top.length } : {}),
       regions,
     };
   }

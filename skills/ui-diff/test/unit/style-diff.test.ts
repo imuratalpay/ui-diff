@@ -42,6 +42,8 @@ function el(over: Over): StyledElement {
 
 const snap = (elements: StyledElement[], colors: StyleSnapshot['colors'] = {}): StyleSnapshot => ({ elements, colors });
 const diff = (base: StyledElement[], head: StyledElement[], colors: StyleSnapshot['colors'] = {}) => diffElements(snap(base, colors), snap(head, colors), matchElements(base, head));
+/** The elements with a change that counts (a cause, or geometry nothing explains). */
+const counted = (changes: ReturnType<typeof diff>) => changes.filter((c) => c.kind !== 'changed' || c.changes.some((p) => p.kind !== 'effect'));
 
 /** A hero with a button and a link side by side, and a section below it, as in the sample site. */
 function page(cta: { padding: string[]; radius: string; width: number; height: number }) {
@@ -57,14 +59,17 @@ function page(cta: { padding: string[]; radius: string; width: number; height: n
 }
 
 describe('measured style diff', () => {
-  it('names the element whose padding changed, with the exact before → after, and nothing it pushed', () => {
+  it('names the element whose padding changed, with the exact before → after, and what it pushed as its effects', () => {
     const before = page({ padding: ['8px', '14px', '8px', '14px'], radius: '4px', width: 100, height: 36 });
     const after = page({ padding: ['10px', '18px', '10px', '18px'], radius: '8px', width: 108, height: 40 });
     const changes = diff(before, after);
     assert.deepEqual(
-      changes.map((c) => ({ name: c.name, kind: c.kind, changes: c.changes.map((p) => `${p.property} ${p.before} → ${p.after}`) })),
-      [{ name: "link 'Get started'", kind: 'changed', changes: ['size 100×36px → 108×40px', 'padding 8px 14px → 10px 18px', 'border-radius 4px → 8px'] }],
+      counted(changes).map((c) => ({ name: c.name, kind: c.kind, changes: c.changes.map((p) => `${p.kind} ${p.property} ${p.before} → ${p.after}`) })),
+      [{ name: "link 'Get started'", kind: 'changed', changes: ['effect size 100×36px → 108×40px', 'cause padding 8px 14px → 10px 18px', 'cause border-radius 4px → 8px'] }],
     );
+    const effects = changes.filter((c) => !counted(changes).includes(c));
+    assert.deepEqual(effects.map((c) => `${c.selector} ${c.changes.map((p) => p.property).join()}`).sort(), ['a.secondary position', 'div.hero-actions size', 'main size', 'section.features position', 'section.hero size']);
+    assert.ok(changes.flatMap((c) => c.changes).filter((p) => p.kind === 'effect').every((p) => p.cause === 'h3:padding'), 'all from the padding change');
     assert.equal(changes[0].confidence, 'high');
     assert.equal(changes[0].reason, 'same link named "Get started"');
   });
@@ -97,7 +102,7 @@ describe('measured style diff', () => {
     ];
     const changes = diff(base, head);
     const text = changes.find((c) => c.kind === 'changed')!;
-    assert.deepEqual(text.changes, [{ property: 'text', group: 'content', before: "'Pricing'", after: "'Plans'" }]);
+    assert.deepEqual(text.changes, [{ property: 'text', group: 'content', before: "'Pricing'", after: "'Plans'", id: 'h1:text', kind: 'cause' }]);
     const added = changes.filter((c) => c.kind === 'added');
     assert.deepEqual(added.map((c) => [c.selector, c.inside]), [['div.promo', 2]]);
   });
@@ -111,16 +116,17 @@ describe('measured style diff', () => {
     );
   });
 
-  it('reports reordered items once, as an order change of their parent, not as every item moving', () => {
+  it('reports reordered items once, as an order change of their parent, and their moves as its effects', () => {
     const list = (order: string[]) => [el({ tag: 'ul', attrs: { id: 'plans' }, box: { x: 0, y: 0, width: 300, height: 120 } }), ...order.map((t, i) => el({ tag: 'li', ownText: t, selector: `li:nth-of-type(${i + 1})`, parent: 0, box: { x: 0, y: i * 40, width: 300, height: 40 } }))];
     const changes = diff(list(['Starter', 'Pro', 'Team']), list(['Team', 'Starter', 'Pro']));
     assert.deepEqual(
-      changes.map((c) => [c.selector, c.changes.map((p) => `${p.property} ${p.before} → ${p.after}`)]),
+      counted(changes).map((c) => [c.selector, c.changes.map((p) => `${p.property} ${p.before} → ${p.after}`)]),
       [['ul', ['order Starter, Pro, Team → Team, Starter, Pro']]],
     );
+    assert.ok(changes.filter((c) => c.selector.startsWith('li')).every((c) => c.changes.every((p) => p.kind === 'effect' && p.cause === 'h0:order')));
   });
 
-  it('leaves out masked elements, border colors without a border, and siblings pushed by a gap change', () => {
+  it('leaves out masked elements and border colors without a border, and counts siblings pushed by a gap change as effects', () => {
     const row = (gap: string, cta: number, counter: string) => [
       el({ tag: 'div', selector: 'div.actions', attrs: { id: 'actions' }, box: { x: 0, y: 0, width: 600, height: 40 }, styles: { display: 'flex', gap: [gap, gap] } }),
       el({ tag: 'a', selector: 'a.cta', attrs: { testid: 'cta' }, parent: 0, box: { x: 0, y: 0, width: cta, height: 40 } }),
@@ -130,13 +136,14 @@ describe('measured style diff', () => {
     ];
     const changes = diff(row('16px', 134, '500'), row('17px', 142, '900'));
     assert.deepEqual(
-      changes.map((c) => [c.selector, c.changes.map((p) => p.property)]).sort(),
+      counted(changes).map((c) => [c.selector, c.changes.map((p) => `${p.kind} ${p.property}`)]).sort(),
       [
-        ['a.cta', ['size']],
-        ['div.actions', ['gap']],
-        ['label', ['color']],
+        ['a.cta', ['unexplained size']],
+        ['div.actions', ['cause gap']],
+        ['label', ['cause color']],
       ],
     );
+    assert.deepEqual(changes.find((c) => c.selector === 'a.secondary')?.changes.map((p) => `${p.kind} ${p.property}`), ['effect position']);
   });
 
   it('is empty for identical maps', () => {

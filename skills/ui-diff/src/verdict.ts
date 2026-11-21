@@ -1,4 +1,4 @@
-import type { ElementChange } from './elements.js';
+import type { ChangeKind, ElementChange } from './elements.js';
 import { notCheckedReason, type CaptureResult, type Report } from './report.js';
 
 export type CheckVerdict = 'no visual changes' | 'no visual changes found, captured differently' | 'visual changes' | 'capture errors' | 'nothing checked';
@@ -22,10 +22,19 @@ export interface MeasuredVariant {
   viewport: string;
   theme: string;
   magnitude: number;
+  /** The change's id in that capture's styleDiff, and for an effect the id of its cause there. */
+  change?: string;
+  cause?: string;
 }
 
 /** One measured change: an element's property going from one value to another, on the variants it was seen on. */
 export interface MeasuredRow {
+  /** "m3": unique within the report. */
+  id: string;
+  /** cause and unexplained rows count; effect rows sit under the row of their cause. */
+  kind: ChangeKind;
+  /** For an effect: the id of the row of its cause. */
+  cause?: string;
   name: string;
   selector: string;
   /** The CSS property, "size", "position", "text", or the kind ("added", "removed") of a whole element. */
@@ -38,13 +47,15 @@ export interface MeasuredRow {
   variants: MeasuredVariant[];
   /** "desktop, mobile · light, dark", or "desktop/dark, mobile/dark" when not every combination. */
   where: string;
+  /** For a counted row: what it changed besides itself (its own size and position, a parent, siblings). */
+  effects: MeasuredRow[];
 }
 
 export interface RouteMeasurements {
   route: string;
   /** Changed captures of the route that have a style diff. */
   captures: CaptureResult[];
-  /** Verified changes grouped by element, property and old → new value, biggest element first. */
+  /** Verified changes that count, grouped by element, property and old → new value, biggest element first. */
   rows: MeasuredRow[];
   /** "name: change" → why it was not verified. */
   unverified: Map<string, string>;
@@ -62,53 +73,112 @@ export function variantsLabel(variants: Array<Pick<MeasuredVariant, 'viewport' |
   return combos.map(([v, t]) => (showThemes ? `${v}/${t}` : v)).join(', ');
 }
 
-function propertyRows(change: ElementChange): Array<Pick<MeasuredRow, 'property' | 'before' | 'after' | 'text'>> {
-  if (change.kind !== 'changed') return [{ property: change.kind, text: changeText(change) }];
-  return change.changes.map((p) => ({ property: p.property, before: p.before, after: p.after, text: p.property === 'position' ? p.after : `${p.property} ${p.before} → ${p.after}` }));
+interface PropertyRow {
+  property: string;
+  before?: string;
+  after?: string;
+  text: string;
+  id?: string;
+  kind: ChangeKind;
+  cause?: string;
+}
+
+function propertyRows(change: ElementChange): PropertyRow[] {
+  if (change.kind !== 'changed') return [{ property: change.kind, text: changeText(change), id: change.id, kind: 'cause' }];
+  // Reports written before causes and effects were told apart count every change.
+  return change.changes.map((p) => ({ property: p.property, before: p.before, after: p.after, text: p.property === 'position' ? p.after : `${p.property} ${p.before} → ${p.after}`, id: p.id, kind: p.kind ?? 'cause', cause: p.cause }));
+}
+
+/** "padding 8px 14px → 10px 18px", leaving out what follows from it. */
+export function causeText(change: ElementChange): string {
+  const causes = change.changes.filter((p) => p.kind !== 'effect');
+  return changeText(causes.length && change.kind === 'changed' ? { ...change, changes: causes } : change);
 }
 
 /** The measured changes of every changed route, in the order the routes were captured. */
 export function measurements(report: Report): RouteMeasurements[] {
   const changed = report.captures.filter((c) => c.status === 'changed' && c.styleDiff);
   const out: RouteMeasurements[] = [];
+  let next = 1;
   for (const route of [...new Set(changed.map((c) => c.route.path))]) {
     const captures = changed.filter((c) => c.route.path === route);
-    const rows = new Map<string, Omit<MeasuredRow, 'where'>>();
+    type Row = Omit<MeasuredRow, 'where' | 'effects' | 'id'> & { key: string };
+    const rows = new Map<string, Row>();
+    const effects = new Map<string, Row>();
     const elementMagnitude = new Map<string, number>();
     const unverified = new Map<string, string>();
+    /** "<capture>|<change id>" → key of the counted row it went into. */
+    const rowOf = new Map<string, string>();
+    const hidden = new Set<string>();
+    const pending: Array<{ c: CaptureResult; change: ElementChange; p: PropertyRow }> = [];
+    const add = (map: Map<string, Row>, key: string, c: CaptureResult, change: ElementChange, p: PropertyRow, cause?: string) => {
+      const row = map.get(key) ?? { key, kind: p.kind, ...(cause ? { cause } : {}), name: change.name, selector: change.selector, property: p.property, before: p.before, after: p.after, text: p.text, magnitude: 0, variants: [] };
+      row.magnitude = Math.max(row.magnitude, change.magnitude);
+      if (!row.variants.some((v) => v.capture === c.id)) row.variants.push({ capture: c.id, viewport: c.viewport, theme: c.theme, magnitude: change.magnitude, ...(p.id ? { change: p.id } : {}), ...(p.cause ? { cause: p.cause } : {}) });
+      map.set(key, row);
+    };
     for (const c of captures) {
       for (const change of c.styleDiff!.changes) {
+        const element = `${change.name}\u0000${change.selector}`;
         if (change.verified === false) {
-          unverified.set(`${change.name}: ${changeText(change)}`, change.unverified?.join('; ') ?? '');
+          unverified.set(`${change.name}: ${causeText(change)}`, change.unverified?.join('; ') ?? '');
+          for (const p of propertyRows(change)) if (p.id) hidden.add(`${c.id}|${p.id}`);
           continue;
         }
-        const element = `${change.name}\u0000${change.selector}`;
-        elementMagnitude.set(element, Math.max(elementMagnitude.get(element) ?? 0, change.magnitude));
         for (const p of propertyRows(change)) {
+          if (p.kind === 'effect') {
+            pending.push({ c, change, p });
+            continue;
+          }
+          elementMagnitude.set(element, Math.max(elementMagnitude.get(element) ?? 0, change.magnitude));
           const key = `${element}\u0000${p.property}\u0000${p.before ?? ''}\u0000${p.after ?? ''}\u0000${p.text}`;
-          const row = rows.get(key) ?? { name: change.name, selector: change.selector, ...p, magnitude: 0, variants: [] };
-          row.magnitude = Math.max(row.magnitude, change.magnitude);
-          if (!row.variants.some((v) => v.capture === c.id)) row.variants.push({ capture: c.id, viewport: c.viewport, theme: c.theme, magnitude: change.magnitude });
-          rows.set(key, row);
+          add(rows, key, c, change, p);
+          if (p.id) rowOf.set(`${c.id}|${p.id}`, key);
         }
       }
+    }
+    for (const { c, change, p } of pending) {
+      const causeKey = rowOf.get(`${c.id}|${p.cause}`);
+      if (!causeKey) {
+        // Its cause is unverified: it goes with it. A cause that cannot be found: count it, never hide it.
+        if (hidden.has(`${c.id}|${p.cause}`)) continue;
+        const element = `${change.name}\u0000${change.selector}`;
+        elementMagnitude.set(element, Math.max(elementMagnitude.get(element) ?? 0, change.magnitude));
+        add(rows, `${element}\u0000${p.property}\u0000${p.before ?? ''}\u0000${p.after ?? ''}\u0000${p.text}`, c, change, { ...p, kind: 'unexplained', cause: undefined });
+        continue;
+      }
+      add(effects, `${causeKey}\u0001${change.name}\u0000${change.selector}\u0000${p.property}\u0000${p.before ?? ''}\u0000${p.after ?? ''}\u0000${p.text}`, c, change, p, causeKey);
     }
     // Biggest element first; its properties in the order they were first measured, the values of one property together.
     const elementOrder = [...elementMagnitude].sort((a, b) => b[1] - a[1]).map(([key]) => key);
     const all = [...rows.values()];
-    const firstOf = (row: (typeof all)[number]) => all.findIndex((r) => r.name === row.name && r.selector === row.selector && r.property === row.property);
+    const firstOf = (row: Row) => all.findIndex((r) => r.name === row.name && r.selector === row.selector && r.property === row.property);
+    const ids = new Map<string, string>();
     const sorted = all
       .map((row, i) => ({ row, i, p: firstOf(row) }))
       .sort((a, b) => elementOrder.indexOf(`${a.row.name}\u0000${a.row.selector}`) - elementOrder.indexOf(`${b.row.name}\u0000${b.row.selector}`) || a.p - b.p || a.i - b.i)
-      .map(({ row }) => ({ ...row, where: variantsLabel(row.variants, report) }));
+      .map(({ row }): MeasuredRow => {
+        const { key, ...rest } = row;
+        const id = `m${next++}`;
+        ids.set(key, id);
+        return { id, ...rest, where: variantsLabel(row.variants, report), effects: [] };
+      });
+    const byId = new Map(sorted.map((r) => [r.id, r]));
+    for (const e of effects.values()) {
+      const { key: _key, cause, ...rest } = e;
+      const parent = byId.get(ids.get(cause!)!)!;
+      // The cause's own element first, then the others in document order of discovery.
+      parent.effects.push({ id: `m${next++}`, ...rest, cause: parent.id, where: variantsLabel(e.variants, report), effects: [] });
+    }
+    for (const r of sorted) r.effects.sort((a, b) => Number(!(a.name === r.name && a.selector === r.selector)) - Number(!(b.name === r.name && b.selector === r.selector)));
     out.push({ route, captures, rows: sorted, unverified });
   }
   return out;
 }
 
-/** Every route's grouped rows, for report.json. */
-export function measuredGroups(report: Report): Array<MeasuredRow & { route: string }> {
-  return measurements(report).flatMap((r) => r.rows.map((row) => ({ route: r.route, ...row })));
+/** Every route's counted rows, for report.json. */
+export function measuredGroups(report: Report): Array<Omit<MeasuredRow, 'effects'> & { route: string }> {
+  return measurements(report).flatMap((r) => r.rows.map(({ effects: _, ...row }) => ({ route: r.route, ...row })));
 }
 
 export interface PixelOnlyArea {
@@ -175,3 +245,4 @@ export function verdict(report: Report): Verdict {
 function capitalize(text: string): string {
   return text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
 }
+

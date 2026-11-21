@@ -62,8 +62,15 @@ describe('measured style diff in reports and comments', { timeout: 300_000 }, ()
     return { report, comment: readFileSync(path.join(outDir, 'comment.local.md'), 'utf8') };
   };
 
-  /** "name: change · change" lines of the measured changes. */
-  const measured = (report: Report) => report.captures.flatMap((c) => c.styleDiff?.changes ?? []).map((c) => `${c.name}: ${c.kind === 'changed' ? c.changes.map((p) => (p.property === 'position' ? p.after : `${p.property} ${p.before} → ${p.after}`)).join(' · ') : c.kind}`);
+  /** "name: change · change" lines of the measured changes that count (effects left out). */
+  const measured = (report: Report) =>
+    report.captures
+      .flatMap((c) => c.styleDiff?.changes ?? [])
+      .map((c) => ({ ...c, changes: c.changes.filter((p) => p.kind !== 'effect') }))
+      .filter((c) => c.kind !== 'changed' || c.changes.length)
+      .map((c) => `${c.name}: ${c.kind === 'changed' ? c.changes.map((p) => (p.property === 'position' ? p.after : `${p.property} ${p.before} → ${p.after}`)).join(' · ') : c.kind}`);
+  /** "name: change" of the effects, with their cause. */
+  const effects = (report: Report) => report.captures.flatMap((c) => c.styleDiff?.changes ?? []).flatMap((c) => c.changes.filter((p) => p.kind === 'effect').map((p) => `${c.name}: ${p.property} ← ${p.cause}`));
 
   before(() => {
     dir = mkdtempSync(path.join(os.tmpdir(), 'ui-diff-style-diff-'));
@@ -92,11 +99,14 @@ describe('measured style diff in reports and comments', { timeout: 300_000 }, ()
     assert.equal(report.version, 3);
     const lines = measured(report);
     assert.equal(lines.length, 1, JSON.stringify(lines));
-    assert.match(lines[0], /^link 'Get started': size \d+(\.5)?×40px → \d+(\.5)?×44px · padding 8px 14px → 10px 18px$/);
-    assert.deepEqual(report.measured!.map((g) => [g.route, g.property, g.variants.map((v) => v.capture)]), [['/', 'size', [report.captures[0].id]], ['/', 'padding', [report.captures[0].id]]], 'report.json has the same groups, with their captures');
-    assert.equal(comment.split('\n')[1], '### UI diff (local preview) — 2 measured changes on 1 route', 'the verdict is the first line: the size and the padding');
+    assert.match(lines[0], /^link 'Get started': padding 8px 14px → 10px 18px$/);
+    const cta = report.captures[0].styleDiff!.changes.find((c) => c.name === "link 'Get started'")!;
+    assert.match(cta.changes.find((p) => p.property === 'size')!.before + ' → ' + cta.changes.find((p) => p.property === 'size')!.after, /^\d+(\.5)?×40px → \d+(\.5)?×44px$/, 'its size is still measured, as an effect');
+    assert.ok(effects(report).length >= 3 && effects(report).every((e) => e.endsWith(`← ${cta.changes.find((p) => p.property === 'padding')!.id}`)), JSON.stringify(effects(report)));
+    assert.deepEqual(report.measured!.filter((g) => g.selector === 'a.cta').map((g) => [g.route, g.kind, g.property, g.variants.map((v) => v.capture)]), [['/', 'cause', 'padding', [report.captures[0].id]]], 'report.json has the same groups, with their kinds and captures');
+    assert.equal(comment.split('\n')[1], '### UI diff (local preview) — 1 measured change on 1 route', 'the verdict is the first line: the padding, its size change follows from it');
     assert.ok(comment.indexOf('#### Measured changes') < comment.indexOf('#### Images'), 'measured changes before the images');
-    assert.match(comment, /#### Measured changes\n\n\*\*`\/`\*\*\n\n- `link 'Get started'` \(`a\.cta`\): size [^\n]* — \w+\n- `link 'Get started'` \(`a\.cta`\): padding 8px 14px → 10px 18px — \w+\n/);
+    assert.match(comment, /#### Measured changes\n\n\*\*`\/`\*\*\n\n- `link 'Get started'` \(`a\.cta`\): padding 8px 14px → 10px 18px — \w+\n\n/);
     assert.match(comment, /<sub>link 'Get started': size .* · padding 8px 14px → 10px 18px<\/sub>/, 'the zoomed crop says what it shows');
     const { regions, changes } = report.captures[0].styleDiff!;
     const explained = regions.find((r) => r.changes.some((i) => changes[i].name === "link 'Get started'"));
@@ -115,12 +125,14 @@ describe('measured style diff in reports and comments', { timeout: 300_000 }, ()
   it('reports an added element as added, and does not list the link it pushed aside', async () => {
     const { report } = await run('added');
     assert.deepEqual(measured(report), ["link 'Book a demo': added"]);
+    assert.ok(effects(report).some((e) => /^link 'See how it works': position ← h\d+:added$/.test(e)), `the pushed link is an effect of the added one: ${JSON.stringify(effects(report))}`);
   });
 
   it('reports reordered items as one order change, not every item as changed', async () => {
     const { report, comment } = await run('reorder');
     assert.equal(report.captures[0].status, 'changed');
     assert.deepEqual(measured(report), ['ul.plans: order Starter, Pro, Team → Team, Starter, Pro']);
+    assert.ok(effects(report).filter((e) => e.startsWith('li ')).length === 3 && effects(report).every((e) => /← h\d+:order$/.test(e) || !e.startsWith('li ')), JSON.stringify(effects(report)));
     assert.match(comment, /- `ul\.plans`: order Starter, Pro, Team → Team, Starter, Pro/);
   });
 

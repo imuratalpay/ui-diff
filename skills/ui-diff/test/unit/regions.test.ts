@@ -38,7 +38,7 @@ describe('changed pixels to elements', () => {
 
   it('names a text change', () => {
     const r = explain({ x: 80, y: 40, width: 120, height: 40 });
-    assert.deepEqual(r.changes.map((i) => changes[i].changes), [[{ property: 'text', group: 'content', before: "'Pricing'", after: "'Plans'" }]]);
+    assert.deepEqual(r.changes.map((i) => changes[i].changes), [[{ property: 'text', group: 'content', before: "'Pricing'", after: "'Plans'", id: 'h3:text', kind: 'cause' }]]);
   });
 
   it('says "image content changed" when an image changed without a measured change', () => {

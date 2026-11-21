@@ -136,7 +136,18 @@ export interface PropertyChange {
   group: ChangeGroup;
   before: string;
   after: string;
+  /** Unique within a capture: "h12:padding" (head element 12), "b3:removed" (base element 3). */
+  id?: string;
+  /**
+   * cause: an authored change (style, text, image, order). effect: size or position that changed
+   * only because of a cause on this element, an ancestor, a descendant or a sibling (`cause` is its
+   * id). unexplained: size or position that no measured cause accounts for, counted on its own.
+   */
+  kind?: ChangeKind;
+  cause?: string;
 }
+
+export type ChangeKind = 'cause' | 'effect' | 'unexplained';
 
 /** What happened to one element between base and head. */
 export interface ElementChange {
@@ -154,12 +165,21 @@ export interface ElementChange {
   deviceBox?: Box;
   /** For added and removed elements: how many elements inside it were added or removed with it. */
   inside?: number;
+  /** For added and removed elements, which are causes themselves: "h12:added", "b3:removed". */
+  id?: string;
   /** For sorting, biggest first; no unit. */
   magnitude: number;
   /** Matched confidently enough and its box overlaps changed pixels; false with the reasons when not. */
   verified?: boolean;
   unverified?: string[];
 }
+
+/** Authored properties that change an element's own size. */
+const SIZE_CAUSES = new Set(['padding', 'gap', 'border-width', 'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'display', 'flex-direction', 'grid-auto-flow', 'justify-content', 'align-items']);
+/** Authored properties of an ancestor that resize what it contains (its content box, inherited type, layout). */
+const ANCESTOR_CAUSES = new Set(['padding', 'border-width', 'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'display', 'flex-direction', 'grid-auto-flow', 'align-items']);
+const LAYOUT_CAUSES = new Set(['display', 'flex-direction', 'grid-auto-flow', 'justify-content', 'align-items', 'order']);
+const MARGIN = new Set(['margin']);
 
 /** Inherited properties: a change on an element repeats on every descendant that inherits it. */
 const INHERITED = new Set(['color', 'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing']);
@@ -271,10 +291,10 @@ function weight(change: PropertyChange, colors: { before?: RGBAValue; after?: RG
 }
 
 /**
- * Measured differences of matched elements, plus added and removed ones. Noise is kept out: an
- * inherited property is reported only where it changed (not on every descendant), a box that
- * moved because an earlier sibling grew or that resized because its children changed is a
- * consequence and not listed, and an added or removed subtree is one entry.
+ * Measured differences of matched elements, plus added and removed ones. An inherited property is
+ * reported only where it changed (not on every descendant), and an added or removed subtree is one
+ * entry. Size and position changes are effects when an authored change explains them (with the id
+ * of that cause), and unexplained otherwise, so they still count.
  */
 /** The element matches a focus selector or sits inside one that does. */
 function inFocus(list: StyledElement[], index: number): boolean {
@@ -328,50 +348,122 @@ export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: El
     raw.get(parent)!.changes.push({ property: 'order', group: 'layout', before: list(before), after: list(after) });
   }
 
+  // Added and removed subtrees are one change each, named by their topmost element.
+  const addedSet = new Set(match.added);
+  const removedSet = new Set(match.removed);
+  const listed = (list: StyledElement[], i: number) => !list[i].masked && (!opts.focusOnly || inFocus(list, i));
+  const subtreeId = (list: StyledElement[], set: Set<number>, i: number, side: 'h' | 'b'): string | undefined => {
+    let top = i;
+    while (list[top].parent != null && set.has(list[top].parent!)) top = list[top].parent!;
+    return listed(list, top) ? `${side}${top}:${side === 'h' ? 'added' : 'removed'}` : undefined;
+  };
+
+  const ownChanges = new Map<number, PropertyChange[]>();
+  for (const [hi, r] of raw) {
+    const h = head.elements[hi];
+    // Inherited: drop what the matched parent changed the same way.
+    const parentRaw = h.parent != null ? raw.get(h.parent) : undefined;
+    const own = r.changes.filter((c) => !(INHERITED.has(c.property) && parentRaw?.changes.some((p) => p.property === c.property && p.before === c.before && p.after === c.after)));
+    ownChanges.set(hi, own.map((c) => ({ ...c, id: `h${hi}:${c.property}`, kind: 'cause' as const })));
+  }
+  const geometryCause = (hi: number, props: Set<string>) => ownChanges.get(hi)?.find((c) => props.has(c.property));
+  const resized = (r: { dw: number; dh: number }) => Math.abs(r.dw) >= 0.5 || Math.abs(r.dh) >= 0.5;
+
+  // Sizes, children before parents: what explains each resize, or nothing (then it counts on its own).
+  const sizeRoot = new Map<number, string>();
+  const sizeCause = new Map<number, string | undefined>();
+  for (const hi of [...raw.keys()].sort((x, y) => y - x)) {
+    const r = raw.get(hi)!;
+    if (!resized(r)) continue;
+    const h = head.elements[hi];
+    let cause = geometryCause(hi, SIZE_CAUSES)?.id;
+    if (!cause) {
+      // A child that grew, moved by its margin, or was added or removed.
+      let best: { id: string; amount: number } | undefined;
+      const consider = (id: string | undefined, amount: number) => {
+        if (id && (!best || amount > best.amount)) best = { id, amount };
+      };
+      for (const k of childrenOf.get(hi) ?? []) {
+        const kr = raw.get(k);
+        if (kr && resized(kr)) consider(sizeRoot.get(k), Math.abs(kr.dw) + Math.abs(kr.dh));
+        else if (kr) consider(geometryCause(k, MARGIN)?.id, 1);
+        else if (addedSet.has(k)) consider(subtreeId(head.elements, addedSet, k, 'h'), Infinity);
+      }
+      for (const ri of match.removed) if (base.elements[ri].parent === r.pair.base) consider(subtreeId(base.elements, removedSet, ri, 'b'), Infinity);
+      cause = best?.id;
+    }
+    // An ancestor's authored change (padding, font size, layout) reshapes what it contains.
+    for (let p = h.parent; !cause && p != null; p = head.elements[p].parent) cause = geometryCause(p, ANCESTOR_CAUSES)?.id;
+    sizeCause.set(hi, cause);
+    sizeRoot.set(hi, cause ?? `h${hi}:size`);
+  }
+
   const out: ElementChange[] = [];
   for (const [hi, r] of raw) {
     const h = head.elements[hi];
     const b = base.elements[r.pair.base];
-    // Inherited: drop what the matched parent changed the same way.
-    const parentRaw = h.parent != null ? raw.get(h.parent) : undefined;
-    const changes = r.changes.filter((c) => !(INHERITED.has(c.property) && parentRaw?.changes.some((p) => p.property === c.property && p.before === c.before && p.after === c.after)));
-    const resized = Math.abs(r.dw) >= 0.5 || Math.abs(r.dh) >= 0.5;
+    const changes = [...ownChanges.get(hi)!];
+    if (resized(r)) {
+      const cause = sizeCause.get(hi);
+      changes.unshift({ property: 'size', group: 'box', before: `${halfPx(b.box.width).replace('px', '')}×${halfPx(b.box.height)}`, after: `${halfPx(h.box.width).replace('px', '')}×${halfPx(h.box.height)}`, id: `h${hi}:size`, ...(cause ? { kind: 'effect' as const, cause } : { kind: 'unexplained' as const }) });
+    }
     const moved = Math.abs(r.dx) >= 0.5 || Math.abs(r.dy) >= 0.5;
-    const kids = childrenOf.get(hi) ?? [];
-    const kidChanged = kids.some((k) => {
-      const kr = raw.get(k);
-      return !baseOf.has(k) || (kr && (kr.changes.length > 0 || Math.abs(kr.dw) >= 0.5 || Math.abs(kr.dh) >= 0.5 || Math.abs(kr.dx) >= 0.5 || Math.abs(kr.dy) >= 0.5));
-    });
-    if (resized && (changes.length > 0 || !kidChanged)) changes.unshift({ property: 'size', group: 'box', before: `${halfPx(b.box.width).replace('px', '')}×${halfPx(b.box.height)}`, after: `${halfPx(h.box.width).replace('px', '')}×${halfPx(h.box.height)}` });
-    if (moved && !reordered.has(hi)) {
-      // Pushed by an earlier sibling that changed size, or by one that was added or removed: a consequence.
-      const siblings = (childrenOf.get(h.parent ?? null) ?? []).filter((s) => s < hi);
-      // The parent's gap and padding move its children too.
-      const [pb, ph] = [b.parent != null ? base.elements[b.parent] : undefined, h.parent != null ? head.elements[h.parent] : undefined];
-      const delta = (pick: (e: StyledElement) => string[] | undefined, i: number) => (pb && ph ? Math.abs(parseFloat(pick(ph)?.[i] ?? '0') - parseFloat(pick(pb)?.[i] ?? '0')) || 0 : 0);
-      const gapDelta = Math.max(delta((e) => e.styles.gap, 0), delta((e) => e.styles.gap, 1));
-      const grew = siblings.reduce(
-        (acc, s) => {
-          const sr = raw.get(s);
-          if (!baseOf.has(s)) return { w: Infinity, h: Infinity };
-          return sr ? { w: acc.w + Math.abs(sr.dw), h: acc.h + Math.abs(sr.dh) } : acc;
-        },
-        { w: delta((e) => e.styles.padding, 3) + gapDelta * siblings.length, h: delta((e) => e.styles.padding, 0) + gapDelta * siblings.length },
-      );
-      const removedBefore = match.removed.some((ri) => base.elements[ri].parent === b.parent && ri < r.pair.base);
-      const pushed = removedBefore || (Math.abs(r.dx) <= grew.w + 0.5 && Math.abs(r.dy) <= grew.h + 0.5);
-      if (!pushed) {
-        const dir = [r.dx && `${halfPx(Math.abs(r.dx))} ${r.dx > 0 ? 'right' : 'left'}`, r.dy && `${halfPx(Math.abs(r.dy))} ${r.dy > 0 ? 'down' : 'up'}`].filter((d) => d && !/^0px/.test(d));
-        if (dir.length) changes.push({ property: 'position', group: 'box', before: '', after: `moved ${dir.join(', ')}` });
-      }
+    if (moved) {
+      const dir = [r.dx && `${halfPx(Math.abs(r.dx))} ${r.dx > 0 ? 'right' : 'left'}`, r.dy && `${halfPx(Math.abs(r.dy))} ${r.dy > 0 ? 'down' : 'up'}`].filter((d) => d && !/^0px/.test(d));
+      const cause = reordered.has(hi) && h.parent != null ? `h${h.parent}:order` : positionCause(hi, r, b, h);
+      if (dir.length) changes.push({ property: 'position', group: 'box', before: '', after: `moved ${dir.join(', ')}`, id: `h${hi}:position`, ...(cause ? { kind: 'effect' as const, cause } : { kind: 'unexplained' as const }) });
     }
     if (changes.length === 0) continue;
     let magnitude = 0;
     for (const c of changes) {
       const colors = c.group === 'color' ? { before: parseCssColor(c.before), after: parseCssColor(c.after) } : {};
-      magnitude += weight(c, colors);
+      // Effects sort after the changes that count.
+      magnitude += weight(c, colors) * (c.kind === 'effect' ? 0.05 : 1);
     }
     out.push({ kind: 'changed', name: h.name ?? h.selector, selector: h.selector, base: r.pair.base, head: hi, confidence: r.pair.confidence, reason: r.pair.reason, changes, box: h.box, deviceBox: h.deviceBox, magnitude });
+  }
+
+  /**
+   * What explains a move relative to the parent: its own margin or size (centered or end-aligned
+   * content), a sibling that resized or was added or removed, or the parent's padding, gap, layout
+   * or size. Only when those add up to at least the move; else the move counts on its own.
+   */
+  function positionCause(hi: number, r: { dx: number; dy: number; dw: number; dh: number }, b: StyledElement, h: StyledElement): string | undefined {
+    const parts: Array<{ id: string; w: number; h: number }> = [];
+    const delta = (x: string[] | undefined, y: string[] | undefined, i: number) => Math.abs(parseFloat(y?.[i] ?? '0') - parseFloat(x?.[i] ?? '0')) || 0;
+    const margin = geometryCause(hi, MARGIN);
+    if (margin) parts.push({ id: margin.id!, w: delta(b.styles.margin, h.styles.margin, 1) + delta(b.styles.margin, h.styles.margin, 3), h: delta(b.styles.margin, h.styles.margin, 0) + delta(b.styles.margin, h.styles.margin, 2) });
+    if (resized(r)) parts.push({ id: sizeRoot.get(hi)!, w: Math.abs(r.dw), h: Math.abs(r.dh) });
+    const siblings = (childrenOf.get(h.parent ?? null) ?? []).filter((s) => s !== hi);
+    for (const s of siblings) {
+      const sr = raw.get(s);
+      if (sr && resized(sr)) parts.push({ id: sizeRoot.get(s)!, w: Math.abs(sr.dw), h: Math.abs(sr.dh) });
+      else if (addedSet.has(s)) {
+        const id = subtreeId(head.elements, addedSet, s, 'h');
+        if (id) parts.push({ id, w: Infinity, h: Infinity });
+      }
+    }
+    for (const ri of match.removed) {
+      if (base.elements[ri].parent !== b.parent) continue;
+      const id = subtreeId(base.elements, removedSet, ri, 'b');
+      if (id) parts.push({ id, w: Infinity, h: Infinity });
+    }
+    if (h.parent != null && b.parent != null && raw.has(h.parent)) {
+      const [pb, ph] = [base.elements[b.parent], head.elements[h.parent]];
+      const gaps = siblings.length + 1;
+      for (const c of ownChanges.get(h.parent) ?? []) {
+        if (c.property === 'padding') parts.push({ id: c.id!, w: delta(pb.styles.padding, ph.styles.padding, 3) + delta(pb.styles.padding, ph.styles.padding, 1), h: delta(pb.styles.padding, ph.styles.padding, 0) + delta(pb.styles.padding, ph.styles.padding, 2) });
+        else if (c.property === 'gap') parts.push({ id: c.id!, w: Math.max(delta(pb.styles.gap, ph.styles.gap, 0), delta(pb.styles.gap, ph.styles.gap, 1)) * gaps, h: Math.max(delta(pb.styles.gap, ph.styles.gap, 0), delta(pb.styles.gap, ph.styles.gap, 1)) * gaps });
+        else if (LAYOUT_CAUSES.has(c.property) || c.property === 'border-width') parts.push({ id: c.id!, w: Infinity, h: Infinity });
+      }
+      const pr = raw.get(h.parent)!;
+      if (resized(pr)) parts.push({ id: sizeRoot.get(h.parent)!, w: Math.abs(pr.dw), h: Math.abs(pr.dh) });
+    }
+    if (parts.length === 0) return undefined;
+    const w = parts.reduce((n, p) => n + p.w, 0);
+    const hh = parts.reduce((n, p) => n + p.h, 0);
+    if (Math.abs(r.dx) > w + 0.5 || Math.abs(r.dy) > hh + 0.5) return undefined;
+    return parts.reduce((best, p) => (p.w + p.h > best.w + best.h ? p : best)).id;
   }
 
   const subtree = (list: StyledElement[], indices: number[], kind: 'added' | 'removed') => {
@@ -383,12 +475,17 @@ export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: El
       let inside = 0;
       for (const j of indices) for (let p = list[j].parent; p != null; p = list[p].parent) if (p === i) inside++;
       const area = e.box.width * e.box.height;
-      out.push({ kind, name: e.name ?? e.selector, selector: e.selector, [kind === 'added' ? 'head' : 'base']: i, changes: [], box: e.box, deviceBox: e.deviceBox, ...(inside ? { inside } : {}), magnitude: 10 + Math.min(60, Math.sqrt(area) / 2) });
+      out.push({ kind, name: e.name ?? e.selector, selector: e.selector, [kind === 'added' ? 'head' : 'base']: i, id: `${kind === 'added' ? 'h' : 'b'}${i}:${kind}`, changes: [], box: e.box, deviceBox: e.deviceBox, ...(inside ? { inside } : {}), magnitude: 10 + Math.min(60, Math.sqrt(area) / 2) });
     }
   };
   subtree(head.elements, match.added, 'added');
   subtree(base.elements, match.removed, 'removed');
   return out.sort((a, b) => b.magnitude - a.magnitude);
+}
+
+/** An element whose every change follows from a cause elsewhere (a parent that grew, a pushed sibling). */
+export function onlyEffects(change: ElementChange): boolean {
+  return change.kind === 'changed' && change.changes.length > 0 && change.changes.every((c) => c.kind === 'effect');
 }
 
 /** A changed pixel area, explained by the element map. */
@@ -460,6 +557,8 @@ const CONFIDENCE_RANK: Record<MatchConfidence, number> = { high: 3, medium: 2, l
  */
 export function verifyChanges(changes: ElementChange[], regions: Box[], minConfidence: MatchConfidence): void {
   for (const change of changes) {
+    // Effects stand or fall with their cause.
+    if (onlyEffects(change)) continue;
     const reasons: string[] = [];
     if (change.confidence && CONFIDENCE_RANK[change.confidence] < CONFIDENCE_RANK[minConfidence]) reasons.push(`matched with ${change.confidence} confidence only (${change.reason})`);
     const box = change.deviceBox;
