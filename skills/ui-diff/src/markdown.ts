@@ -153,6 +153,63 @@ function warningsSection(report: Report, opts: RenderOptions): string[] {
   return ['#### Warnings', '', ...lines, ''];
 }
 
+function utc(iso: string): string {
+  return iso.replace('T', ' ').replace(/\.\d+Z$|Z$/, ' UTC');
+}
+
+function distinct(values: string[]): string {
+  return [...new Set(values)].join(' / ');
+}
+
+/** One row value per side, summarizing that side's fingerprints across captures. */
+function settingsRows(report: Report, side: 'base' | 'head'): Array<[string, string]> | undefined {
+  const captures = report.captures.filter((c) => c.fingerprint?.[side]);
+  if (captures.length === 0) return undefined;
+  const fps = captures.map((c) => c.fingerprint![side]!);
+  const viewports = new Map<string, string>();
+  for (const c of captures) {
+    const v = c.fingerprint![side]!.viewport;
+    if (!viewports.has(c.viewport)) viewports.set(c.viewport, `${c.viewport} ${v.width}×${v.height} @${v.deviceScaleFactor}x${v.isMobile ? ' mobile' : ''}`);
+  }
+  const union = (pick: (f: (typeof fps)[number]) => string[]) => [...new Set(fps.flatMap(pick))].sort();
+  const loaded = union((f) => f.fonts.loaded);
+  const failed = union((f) => f.fonts.failed);
+  const pending = union((f) => f.fonts.pending);
+  const fonts = [loaded.length ? loaded.join(', ') : 'none', failed.length && `failed: ${failed.join(', ')}`, pending.length && `still loading: ${pending.join(', ')}`].filter(Boolean).join('; ');
+  const commit = fps.find((f) => f.commit)?.commit;
+  const frozen = distinct(
+    fps.map((f) =>
+      [f.freeze.clock ? `clock ${utc(f.freeze.clock)}` : 'clock running', f.freeze.seed === null ? 'not seeded' : `seed ${f.freeze.seed}`, f.freeze.animations ? 'animations off' : 'animations on', f.freeze.fonts ? 'fonts awaited' : 'fonts not awaited'].join(' · '),
+    ),
+  );
+  const schemes = [...new Set(fps.map((f) => f.media.colorScheme))].join('/');
+  const media = distinct(fps.map((f) => [f.media.reducedMotion === 'reduce' ? 'reduced motion' : 'motion allowed', schemes, f.media.locale, f.media.timezone].join(' · ')));
+  return [
+    ['Commit', commit ? code(commit.slice(0, 7)) : 'deployed preview'],
+    ['Viewports', [...viewports.values()].join(' · ')],
+    ['Browser', distinct(fps.map((f) => `${f.browser.name} ${f.browser.version}`))],
+    ['Web fonts', fonts],
+    ['Frozen', frozen],
+    ['Media', media],
+    ['Test data', distinct(fps.map((f) => f.data))],
+    ['User agent', distinct(fps.map((f) => f.browser.userAgent))],
+  ];
+}
+
+/** Collapsed table of what base and head were captured with (the fingerprints), "same" where head matches. */
+export function captureSettingsSection(report: Report): string[] {
+  const base = settingsRows(report, 'base');
+  const head = settingsRows(report, 'head');
+  if (!base && !head) return [];
+  const rows = (base ?? head)!.map(([label], i) => [label, base?.[i][1] ?? '—', head?.[i][1] ?? '—'] as const);
+  const table = rows
+    .filter(([label]) => label !== 'User agent')
+    .map(([label, b, h]) => `| ${label} | ${cell(b)} | ${label !== 'Commit' && h === b ? 'same' : cell(h)} |`);
+  const [, uaBase, uaHead] = rows.find(([label]) => label === 'User agent')!;
+  const ua = uaBase === uaHead ? `User agent: ${code(uaBase)}` : `User agent: base ${code(uaBase)}, head ${code(uaHead)}`;
+  return ['<details><summary>Capture settings</summary>', '', '| | Base | Head |', '|---|---|---|', ...table, '', `<sub>${ua}</sub>`, '', '</details>', ''];
+}
+
 function unmatchedSection(report: Report): string[] {
   const files = report.detect?.unmatched ?? [];
   if (files.length === 0) return [];
@@ -307,6 +364,7 @@ function renderOnce(report: Report, opts: RenderOptions): string {
   const failed = report.captures.filter((c) => c.status === 'error');
   const unchanged = report.captures.filter((c) => c.status === 'unchanged');
   if (changed.length) out.push('#### Changes', '', ...changedSection(report, changed, opts));
+  out.push(...captureSettingsSection(report));
   if (failed.length) {
     out.push('#### Failed captures', '');
     for (const c of failed) out.push(`- ${code(captureLabel(c, report.themes.length))}: ${c.error ?? 'unknown error'}`);
