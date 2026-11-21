@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { COMMANDS, parse } from '../../src/cli.js';
+import { parseConfig } from '../../src/config.js';
+import { renderComment } from '../../src/markdown.js';
+import { parseReport } from '../../src/report.js';
 
 const read = (rel: string) => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8');
 const DOCS = ['../../README.md', '../../CHANGELOG.md', '../../docs/release/v2.0.0.md', '../../examples/README.md', '../../examples/workflows/ui-diff.yml', 'SKILL.md', ...readdirSync(new URL('../../references/', import.meta.url)).map((f) => `references/${f}`)];
@@ -52,6 +55,15 @@ describe('docs', () => {
       const hit = read(doc).split('\n').find((line) => products.test(line));
       assert.equal(hit, undefined, `${doc}: ${hit}`);
     }
+  });
+
+  it('keep the verified example the comment the current code renders from its report, without an empty summary', () => {
+    const cfg = parseConfig(JSON.parse(read('../../examples/sample-site/ui-diff.config.json')), { repoRoot: '/repo' });
+    const report = parseReport(JSON.parse(read('../../docs/example/report.json')), 'docs/example/report.json');
+    const rendered = renderComment(report, { id: cfg.comment.id, title: cfg.comment.title, storageNote: 'rendered locally — nothing uploaded', showUnchanged: cfg.comment.showUnchanged, link: (p) => p });
+    assert.equal(read('../../docs/example/comment.md'), rendered, 'regenerate docs/example (see examples/README.md)');
+    assert.doesNotMatch(rendered, /#### Summary/, 'no summary.md, as in CI');
+    for (const empty of ['', '  \n\n']) assert.doesNotMatch(renderComment(report, { id: 'default', title: 'UI diff', summary: empty, link: (p) => p }), /#### Summary/, 'an empty summary.md adds no section');
   });
 
   it('catches an option that does not exist', () => {

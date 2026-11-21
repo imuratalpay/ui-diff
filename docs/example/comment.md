@@ -1,22 +1,9 @@
 <!-- ui-diff:sticky id=default -->
-### UI diff — 8 measured changes on 1 route
+### UI diff — 5 measured changes on 1 route
 
 **Base** `6737326` → **Head** `cc13cab` · 1 route · desktop, mobile · light, dark
 
 <sub>4 captures · 4 changed · 0 unchanged</sub>
-
-#### Summary
-
-**What changed**
-- **Primary button**: padding 8×14 → 10×18px and corner radius 4 → 8px. The button is a few pixels wider and taller, so "See how it works" sits slightly further right and the rest of the page moves down 4px (desktop height 1603 → 1607px). That shift is aligned in the diff and is not counted as a restyle.
-- **Hero actions**: the gap between the button and the secondary link is 16 → 17px.
-- **Newsletter label**: "Work email" is brand blue (`#2563eb`). Its weight is unchanged.
-
-**Worth a look**
-- In dark mode the label is 3.45:1 (`#2563eb` on `#0f172a`), short of 4.5:1. Light mode passes.
-- The new spacing is off the token scale: `10px` and `18px` on the button (nearest 8px and 16px) and `17px` on the hero actions (nearest 16px).
-
-**Not checked:** `/about.html` (its files did not change).
 
 #### Measured changes
 
@@ -24,11 +11,24 @@
 
 - `label 'Work email'` (`label`): color #0f172a → #2563eb — desktop, mobile · light
 - `label 'Work email'` (`label`): color #f8fafc → #2563eb — desktop, mobile · dark
-- `link 'Start free trial'` (`a.cta`): size 134.5×40px → 142.5×44px — desktop, mobile · light, dark
 - `link 'Start free trial'` (`a.cta`): padding 8px 14px → 10px 18px — desktop, mobile · light, dark
+  - size 134.5×40px → 142.5×44px (from the padding change)
+  <details><summary>10 effects on other elements</summary>
+
+  - `div.hero-actions`: size 992×40px → 992×44px (desktop · light, dark), size 342×40px → 342×44px (mobile · light, dark)
+  - `main.container`: size 1040×1452px → 1040×1456px (desktop · light, dark), size 390×1747.5px → 390×1751.5px (mobile · light, dark)
+  - `section.hero`: size 992×679px → 992×683px (desktop · light, dark), size 342×488.5px → 342×492.5px (mobile · light, dark)
+  - `div.hero-copy`: size 992×195px → 992×199px (desktop · light, dark), size 342×221px → 342×225px (mobile · light, dark)
+  - `link 'See how it works'` (`a.secondary`): moved 9px right, 2px down
+  - `img.hero-art`: moved 4px down
+  - `#features`: moved 4px down
+  - `#pricing`: moved 4px down
+  - `section.newsletter`: moved 4px down
+  - `footer.site-footer`: moved 4px down
+
+  </details>
+
 - `link 'Start free trial'` (`a.cta`): border-radius 4px → 8px — desktop, mobile · light, dark
-- `div.hero-actions`: size 992×40px → 992×44px — desktop · light, dark
-- `div.hero-actions`: size 342×40px → 342×44px — mobile · light, dark
 - `div.hero-actions`: gap 16px → 17px — desktop, mobile · light, dark
 
 #### Images
@@ -37,7 +37,7 @@
 
 <img src="compare/home__desktop__light__pair-1.png" alt="/ · desktop · light: base and head side by side, changed area 1 outlined">
 
-<sub>link 'Start free trial': size 134.5×40px → 142.5×44px · padding 8px 14px → 10px 18px · border-radius 4px → 8px</sub>
+<sub>link 'Start free trial': padding 8px 14px → 10px 18px · border-radius 4px → 8px</sub>
 
 <details><summary>Blink and diff</summary>
 
@@ -69,7 +69,7 @@
 
 <img src="compare/home__desktop__dark__pair-1.png" alt="/ · desktop · dark: base and head side by side, changed area 1 outlined">
 
-<sub>link 'Start free trial': size 134.5×40px → 142.5×44px · padding 8px 14px → 10px 18px · border-radius 4px → 8px</sub>
+<sub>link 'Start free trial': padding 8px 14px → 10px 18px · border-radius 4px → 8px</sub>
 
 <details><summary>Blink and diff</summary>
 
@@ -101,7 +101,7 @@
 
 <img src="compare/home__mobile__light__pair-1.png" alt="/ · mobile · light: base and head side by side, changed area 1 outlined">
 
-<sub>link 'Start free trial': size 134.5×40px → 142.5×44px · padding 8px 14px → 10px 18px · border-radius 4px → 8px</sub>
+<sub>link 'Start free trial': padding 8px 14px → 10px 18px · border-radius 4px → 8px</sub>
 
 <details><summary>Blink and diff</summary>
 
@@ -133,7 +133,7 @@
 
 <img src="compare/home__mobile__dark__pair-1.png" alt="/ · mobile · dark: base and head side by side, changed area 1 outlined">
 
-<sub>link 'Start free trial': size 134.5×40px → 142.5×44px · padding 8px 14px → 10px 18px · border-radius 4px → 8px</sub>
+<sub>link 'Start free trial': padding 8px 14px → 10px 18px · border-radius 4px → 8px</sub>
 
 <details><summary>Blink and diff</summary>
 
@@ -264,26 +264,26 @@
 
 **Timing**
 
-⏱ 29s total · detect 0.0s · prepare 0.5s (base: none 0.0s, boot 0.4s ‖ head: none 0.0s, boot 0.4s) · browser 0.0s · capture 14s (8 screenshots, slowest 1.7s) · diff 4.2s · variants 6.4s · motion 4.4s · a11y 1.1s · tokens 0.0s · element map 0.2s · style diff 0.0s
+⏱ 29s total · detect 0.0s · prepare 0.5s (base: none 0.0s, boot 0.4s ‖ head: none 0.0s, boot 0.4s) · browser 0.0s · capture 14s (8 screenshots, slowest 1.8s) · diff 4.2s · variants 6.4s · motion 4.5s · a11y 1.1s · tokens 0.0s · element map 0.3s · style diff 0.0s
 
 | Phase | Time | |
 |---|---|---|
 | detect | 0.0s | changed files → routes |
 | base | 0.4s | checkout 0.0s · install 0.0s (none) · boot 0.4s |
-| head | 0.4s | checkout 0.0s · install 0.0s (none) · boot 0.4s |
+| head | 0.5s | checkout 0.0s · install 0.0s (none) · boot 0.4s |
 | prepare | 0.5s | base and head at the same time (wall clock) |
 | browser | 0.0s | Chromium check and launch |
-| capture | 14s | 8 screenshots · slowest `home__mobile__light` (base) 1.7s |
+| capture | 14s | 8 screenshots · slowest `home__mobile__light` (base) 1.8s |
 | diff | 4.2s | pixel diffs and composites |
 | variants | 6.4s | variant screenshots |
-| motion | 4.4s | motion clips |
+| motion | 4.5s | motion clips |
 | a11y | 1.1s | axe and focus order (during capture) and the delta |
 | tokens | 0.0s | the token audit |
-| element map | 0.2s | element maps of every capture (taken during capture) |
+| element map | 0.3s | element maps of every capture (taken during capture) |
 | style diff | 0.0s | matching elements, measuring style changes, naming changed areas |
 | total | 29s | wall clock until the report was written |
 
 </details>
 
-<sub>ui-diff 2.0.0 · base `6737326` · head `cc13cab` · full report: [report.json](report.json) · rendered locally — nothing uploaded · generated 2026-11-21 20:05:37 UTC</sub>
-<!-- ui-diff:meta {"head":"cc13cab81ca4c056ebe8ed861cce6747f2495e59","base":"6737326b2e051665eb7b14a33d39acee32ff22de","createdAt":"2026-11-21T20:05:37.023Z"} -->
+<sub>ui-diff 2.0.0 · base `6737326` · head `cc13cab` · full report: [report.json](report.json) · rendered locally — nothing uploaded · generated 2026-11-21 21:06:40 UTC</sub>
+<!-- ui-diff:meta {"head":"cc13cab81ca4c056ebe8ed861cce6747f2495e59","base":"6737326b2e051665eb7b14a33d39acee32ff22de","createdAt":"2026-11-21T21:06:40.518Z"} -->

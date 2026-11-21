@@ -27,7 +27,7 @@ CFG=examples/sample-site/ui-diff.config.json
 
 node $SKILL/bin/ui-diff.mjs detect --config $CFG --base 6737326 --head cc13cab
 node $SKILL/bin/ui-diff.mjs run    --config $CFG --base 6737326 --head cc13cab
-# write .ui-diff/summary.md (docs/example/comment.md shows the one used here), then:
+# docs/example/comment.md has no summary, as in CI: render it without a .ui-diff/summary.md
 node $SKILL/bin/ui-diff.mjs render --config $CFG --output docs/example/comment.md --copy-images
 node $SKILL/bin/ui-diff.mjs publish --config $CFG --pr 1 --dry-run     # nothing is pushed or posted
 

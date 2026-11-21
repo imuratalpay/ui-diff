@@ -391,13 +391,15 @@ repository: [`6737326`](../../commit/6737326b2e051665eb7b14a33d39acee32ff22de) (
 padding grows from 8×14px to 10×18px, its corner radius from 4px to 8px, the gap before the
 secondary link from 16px to 17px, and the "Work email" label turns brand blue). Running ui-diff
 on those two commits produced [`docs/example/comment.md`](docs/example/comment.md), the exact
-comment body that `publish` would post (with local image paths), and the images and `report.json`
-next to it.
+comment body that `publish` would post (with local image paths, and without a `summary.md`, as in
+CI), and the images and `report.json` next to it.
 
-Its verdict is "8 measured changes on 1 route", one per row of the measured changes: the button's
-size, padding and radius, the same on all four captures; the actions' gap, and their height on
-desktop and on mobile (the width differs, so two rows); and the label's color in light and in dark
-mode (the old color differs, so two rows). It found 4 changed captures (desktop/mobile × light/dark), about 0.34% of pixels on desktop and
+Its verdict is "5 measured changes on 1 route": the button's padding and corner radius, the
+actions' gap, and the label's color in light and in dark mode (the old color differs, so two
+rows). The button's size, the taller actions row and hero, the link beside it and every section
+below that moved down 4px are listed under the padding change as its effects.
+
+It found 4 changed captures (desktop/mobile × light/dark), about 0.34% of pixels on desktop and
 0.40% on mobile. The taller button shifts the rest of the page down 4px (desktop height 1603 →
 1607px); that shift is aligned out of the changed percentage. There is 1 new accessibility issue
 (the email label is 3.45:1 in dark mode) and 3 new off-token spacing values (`10px`, `18px`,
