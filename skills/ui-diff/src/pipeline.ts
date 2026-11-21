@@ -14,7 +14,7 @@ import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
 import { distinctFrames, encodeSideBySideGif, motionWarning, moveFile, recordFrames, writeFile, type RawFrame } from './motion.js';
 import { realpathIfExists } from './paths.js';
-import { autoSummary, computeStats, notCheckedReason, pct, truncationWarning, type CaptureResult, type MotionResult, type Report, type SideSummary, type VariantGroup } from './report.js';
+import { autoSummary, computeStats, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureResult, type MotionResult, type Report, type SideSummary, type VariantGroup } from './report.js';
 import { killAllServers, serverLogWarnings } from './server.js';
 import { SideManager, type Side, type SideRequest } from './sides.js';
 import { describeStep, runSteps } from './steps.js';
@@ -329,7 +329,7 @@ async function prepareStage(opts: RunOptions, detected: Detected, runStart: Date
   const viewports = pickViewports(cfg, opts.viewports);
   const themes = pickThemes(cfg, opts.themes);
   const reportBase: Prepared['reportBase'] = {
-    version: 1 as const,
+    version: REPORT_VERSION,
     tool: { name: 'ui-diff' as const, version: VERSION },
     createdAt: runStart.toISOString(),
     routes: routes.map((r) => {

@@ -2,7 +2,7 @@ import type { Report } from '../../src/report.js';
 
 export function sampleReport(overrides: Partial<Report> = {}): Report {
   return {
-    version: 1,
+    version: 2,
     tool: { name: 'ui-diff', version: '0.1.0' },
     createdAt: '2026-11-18T12:00:00.000Z',
     base: { label: 'main @ 1a2b3c4', mode: 'worktree', sha: '1a2b3c4d', shortSha: '1a2b3c4' },

@@ -14,7 +14,7 @@ import { configureLog, log, notesAfter, redact, UiDiffError, writeRedacted } fro
 import { noUiChangeComment, referencedImages, renderComment } from './markdown.js';
 import { lastRunFailure, runPipeline } from './pipeline.js';
 import { encodePath, linkBaseFor, listAssetPrs, publishToBranch, pruneBranch, resolveRemote } from './publish.js';
-import { noUiChange, type Report } from './report.js';
+import { noUiChange, parseReport, type Report } from './report.js';
 import { killAllServers } from './server.js';
 import { detectTokenFiles } from './tokens.js';
 import { VERSION } from './version.js';
@@ -225,7 +225,13 @@ async function currentPr(root: string): Promise<number> {
 function loadReport(outDir: string, summaryOption: unknown): { report: Report; summary?: string } {
   const reportFile = path.join(outDir, 'report.json');
   if (!existsSync(reportFile)) throw new UiDiffError(`No report at ${reportFile}`, { hint: 'Run `ui-diff run` first.' });
-  const report = JSON.parse(readFileSync(reportFile, 'utf8')) as Report;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(reportFile, 'utf8'));
+  } catch (error) {
+    throw new UiDiffError(`Could not parse ${reportFile}: ${(error as Error).message}`, { hint: 'Rerun `ui-diff run`.' });
+  }
+  const report = parseReport(raw, reportFile);
   const failure = lastRunFailure(outDir);
   if (failure) log.warn(`the last run failed (${failure.failedAt}: ${failure.error.split('\n')[0]}); this report is from an earlier run (${report.createdAt}). Rerun \`ui-diff run\` before publishing.`);
   const summaryFile = (summaryOption as string | undefined) ?? (existsSync(path.join(outDir, 'summary.md')) ? path.join(outDir, 'summary.md') : undefined);

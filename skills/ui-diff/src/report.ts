@@ -1,6 +1,8 @@
 import type { A11yIssue, FocusDelta } from './a11y.js';
 import type { Box } from './image.js';
+import { UiDiffError } from './log.js';
 import type { AggregatedFinding } from './tokens.js';
+import { VERSION } from './version.js';
 
 export type CaptureStatus = 'changed' | 'unchanged' | 'added' | 'removed' | 'error';
 
@@ -98,8 +100,11 @@ export interface SideSummary {
   includesUncommitted?: boolean;
 }
 
+/** Version of report.json this ui-diff writes. 1 (ui-diff 0.1) is still read, see `parseReport`. */
+export const REPORT_VERSION = 2;
+
 export interface Report {
-  version: 1;
+  version: typeof REPORT_VERSION;
   tool: { name: 'ui-diff'; version: string };
   createdAt: string;
   base: SideSummary;
@@ -119,6 +124,27 @@ export interface Report {
   notChecked?: string;
   warnings: string[];
   stats: { captures: number; changed: number; unchanged: number; added: number; removed: number; errors: number };
+}
+
+/**
+ * Reads a report.json written by this or an earlier ui-diff (CI artifacts and kept reports outlive
+ * upgrades). Version 1 has the shape of version 2 without its optional additions (`notChecked`,
+ * `diff.focusBoxes`); `notChecked` is derived from the report.
+ */
+export function parseReport(raw: unknown, file: string): Report {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new UiDiffError(`${file} is not a ui-diff report`, { hint: 'Run `ui-diff run` to write a new one.' });
+  const version = (raw as { version?: unknown }).version;
+  if (version === REPORT_VERSION) return raw as Report;
+  if (version === 1) {
+    const report = { ...(raw as Omit<Report, 'version'>), version: REPORT_VERSION } as Report;
+    const notChecked = notCheckedReason(report);
+    if (notChecked && report.notChecked === undefined) report.notChecked = notChecked;
+    return report;
+  }
+  const newer = typeof version === 'number' && version > REPORT_VERSION;
+  throw new UiDiffError(`${file} has report version ${String(version)}, which ui-diff ${VERSION} cannot read`, {
+    hint: newer ? 'It was written by a newer ui-diff: update this one, or rerun `ui-diff run`.' : 'Rerun `ui-diff run` to write a new report.',
+  });
 }
 
 export function computeStats(captures: CaptureResult[]): Report['stats'] {
