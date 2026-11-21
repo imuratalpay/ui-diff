@@ -17,52 +17,98 @@ function plural(n: number, word: string, many = `${word}s`): string {
   return `${n} ${n === 1 ? word : many}`;
 }
 
+export interface MeasuredVariant {
+  capture: string;
+  viewport: string;
+  theme: string;
+  magnitude: number;
+}
+
+/** One measured change: an element's property going from one value to another, on the variants it was seen on. */
 export interface MeasuredRow {
   name: string;
   selector: string;
+  /** The CSS property, "size", "position", "text", or the kind ("added", "removed") of a whole element. */
+  property: string;
+  before?: string;
+  after?: string;
+  /** "padding 8px 14px → 10px 18px", "added (+2 inside)". */
   text: string;
   magnitude: number;
-  /** "desktop", "mobile/dark": the captures of the route it was measured on. */
-  where: string[];
+  variants: MeasuredVariant[];
+  /** "desktop, mobile · light, dark", or "desktop/dark, mobile/dark" when not every combination. */
+  where: string;
 }
 
 export interface RouteMeasurements {
   route: string;
   /** Changed captures of the route that have a style diff. */
   captures: CaptureResult[];
-  /** Verified changes, the same change on several captures once, biggest first. */
+  /** Verified changes grouped by element, property and old → new value, biggest element first. */
   rows: MeasuredRow[];
   /** "name: change" → why it was not verified. */
   unverified: Map<string, string>;
 }
 
+/** The variants a row was seen on, as compactly as they read: a full grid as its two lists. */
+export function variantsLabel(variants: Array<Pick<MeasuredVariant, 'viewport' | 'theme'>>, report: Pick<Report, 'viewports' | 'themes'>): string {
+  const order = (list: string[], all: string[]) => [...new Set(list)].sort((a, b) => all.indexOf(a) - all.indexOf(b));
+  const viewports = order(variants.map((v) => v.viewport), report.viewports);
+  const themes = order(variants.map((v) => v.theme), report.themes);
+  const showThemes = report.themes.length > 1;
+  const pairs = new Set(variants.map((v) => `${v.viewport}/${v.theme}`));
+  if (pairs.size === viewports.length * themes.length) return showThemes ? `${viewports.join(', ')} · ${themes.join(', ')}` : viewports.join(', ');
+  const combos = report.viewports.flatMap((v) => report.themes.map((t) => [v, t])).filter(([v, t]) => pairs.has(`${v}/${t}`));
+  return combos.map(([v, t]) => (showThemes ? `${v}/${t}` : v)).join(', ');
+}
+
+function propertyRows(change: ElementChange): Array<Pick<MeasuredRow, 'property' | 'before' | 'after' | 'text'>> {
+  if (change.kind !== 'changed') return [{ property: change.kind, text: changeText(change) }];
+  return change.changes.map((p) => ({ property: p.property, before: p.before, after: p.after, text: p.property === 'position' ? p.after : `${p.property} ${p.before} → ${p.after}` }));
+}
+
 /** The measured changes of every changed route, in the order the routes were captured. */
 export function measurements(report: Report): RouteMeasurements[] {
-  const themes = report.themes.length;
   const changed = report.captures.filter((c) => c.status === 'changed' && c.styleDiff);
   const out: RouteMeasurements[] = [];
   for (const route of [...new Set(changed.map((c) => c.route.path))]) {
     const captures = changed.filter((c) => c.route.path === route);
-    const rows = new Map<string, MeasuredRow>();
+    const rows = new Map<string, Omit<MeasuredRow, 'where'>>();
+    const elementMagnitude = new Map<string, number>();
     const unverified = new Map<string, string>();
     for (const c of captures) {
-      const where = `${c.viewport}${themes > 1 ? `/${c.theme}` : ''}`;
       for (const change of c.styleDiff!.changes) {
-        const text = changeText(change);
         if (change.verified === false) {
-          unverified.set(`${change.name}: ${text}`, change.unverified?.join('; ') ?? '');
+          unverified.set(`${change.name}: ${changeText(change)}`, change.unverified?.join('; ') ?? '');
           continue;
         }
-        const key = `${change.name}\u0000${change.selector}\u0000${text}`;
-        const row = rows.get(key) ?? { name: change.name, selector: change.selector, text, magnitude: 0, where: [] };
-        row.magnitude = Math.max(row.magnitude, change.magnitude);
-        if (!row.where.includes(where)) row.where.push(where);
-        rows.set(key, row);
+        const element = `${change.name}\u0000${change.selector}`;
+        elementMagnitude.set(element, Math.max(elementMagnitude.get(element) ?? 0, change.magnitude));
+        for (const p of propertyRows(change)) {
+          const key = `${element}\u0000${p.property}\u0000${p.before ?? ''}\u0000${p.after ?? ''}\u0000${p.text}`;
+          const row = rows.get(key) ?? { name: change.name, selector: change.selector, ...p, magnitude: 0, variants: [] };
+          row.magnitude = Math.max(row.magnitude, change.magnitude);
+          if (!row.variants.some((v) => v.capture === c.id)) row.variants.push({ capture: c.id, viewport: c.viewport, theme: c.theme, magnitude: change.magnitude });
+          rows.set(key, row);
+        }
       }
     }
-    out.push({ route, captures, rows: [...rows.values()].sort((a, b) => b.magnitude - a.magnitude), unverified });
+    // Biggest element first; its properties in the order they were first measured, the values of one property together.
+    const elementOrder = [...elementMagnitude].sort((a, b) => b[1] - a[1]).map(([key]) => key);
+    const all = [...rows.values()];
+    const firstOf = (row: (typeof all)[number]) => all.findIndex((r) => r.name === row.name && r.selector === row.selector && r.property === row.property);
+    const sorted = all
+      .map((row, i) => ({ row, i, p: firstOf(row) }))
+      .sort((a, b) => elementOrder.indexOf(`${a.row.name}\u0000${a.row.selector}`) - elementOrder.indexOf(`${b.row.name}\u0000${b.row.selector}`) || a.p - b.p || a.i - b.i)
+      .map(({ row }) => ({ ...row, where: variantsLabel(row.variants, report) }));
+    out.push({ route, captures, rows: sorted, unverified });
   }
   return out;
+}
+
+/** Every route's grouped rows, for report.json. */
+export function measuredGroups(report: Report): Array<MeasuredRow & { route: string }> {
+  return measurements(report).flatMap((r) => r.rows.map((row) => ({ route: r.route, ...row })));
 }
 
 export interface PixelOnlyArea {
@@ -113,8 +159,7 @@ export function verdict(report: Report): Verdict {
   if (report.notComparable) return { kind, text: `Changes found, but captures were not comparable${failed ? `; ${failed}` : ''}` };
   const routes = measurements(report);
   const measured = routes.filter((r) => r.rows.length);
-  // One element whose change reads differently per theme or viewport is still one change.
-  const count = measured.reduce((n, r) => n + new Set(r.rows.map((row) => `${row.name}\u0000${row.selector}`)).size, 0);
+  const count = measured.reduce((n, r) => n + r.rows.length, 0);
   const pixelOnly = new Set(changed.filter((c) => c.status === 'changed' && !measured.some((r) => r.route === c.route.path)).map((c) => c.route.path)).size;
   const parts: string[] = [];
   if (count) parts.push(`${plural(count, 'measured change')} on ${plural(measured.length, 'route')}`);

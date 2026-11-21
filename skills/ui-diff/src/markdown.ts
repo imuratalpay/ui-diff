@@ -105,7 +105,7 @@ function measuredSection(report: Report, opts: RenderOptions): string[] {
   const out = ['#### Measured changes', ''];
   for (const r of routes) {
     out.push(`**${code(r.route)}**`, '');
-    const line = (row: (typeof r.rows)[number]) => `- ${elementLabel(row.name, row.selector)}: ${escapeText(row.text)}${row.where.length < r.captures.length ? ` — ${row.where.join(', ')}` : ''}`;
+    const line = (row: (typeof r.rows)[number]) => `- ${elementLabel(row.name, row.selector)}: ${escapeText(row.text)} — ${row.where}`;
     const visible = compact >= 2 ? 3 : MEASURED_VISIBLE;
     out.push(...r.rows.slice(0, visible).map(line));
     if (r.rows.length > visible && compact < 2) {

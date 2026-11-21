@@ -83,7 +83,7 @@ describe('example CI workflow, run step by step on an app repository', { timeout
     const out = sh(`${step('Publish the sticky comment', values)} --dry-run --quiet`);
     assert.equal((JSON.parse(out) as { dryRun: boolean }).dryRun, true);
     const comment = readFileSync(path.join(dir, '.ui-diff', 'comment.md'), 'utf8');
-    assert.match(comment.split('\n')[1], /^### UI diff — 1 measured change on 1 route$/);
+    assert.match(comment.split('\n')[1], /^### UI diff — 2 measured changes on 1 route$/);
     assert.match(comment, /padding 8px 14px → 10px 18px/);
   });
 });

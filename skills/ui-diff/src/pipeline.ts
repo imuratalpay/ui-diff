@@ -15,6 +15,7 @@ import { COLORS, composeRow, readPng, resizeToWidth, writePng, type Box } from '
 import { captureKey, keyId, type CaptureKey } from './key.js';
 import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
+import { measuredGroups } from './verdict.js';
 import { distinctFrames, encodeBlinkGif, encodeSideBySideGif, isAnimationPackage, motionWarning, recordFrames, stepTokens, touchesAnimation, writeFile, type RawFrame } from './motion.js';
 import { realpathIfExists } from './paths.js';
 import { autoSummary, comparability, computeStats, fingerprintDifferences, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureFingerprint, type CaptureResult, type MotionResult, type Report, type BaseCacheInfo, type SideFingerprint, type SideSummary, type Timings, type VariantGroup } from './report.js';
@@ -347,6 +348,8 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       warnings,
       stats: computeStats(captures),
     };
+    const measured = measuredGroups(report);
+    if (measured.length) report.measured = measured;
     report.timings = {
       totalMs: since(started),
       detectMs,

@@ -43,7 +43,7 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
   for (const r of measurements(report)) {
     if (r.rows.length === 0 && r.unverified.size === 0) continue;
     lines.push('', `Measured changes on ${r.route}`);
-    for (const row of r.rows) lines.push(`  - ${row.name}${row.name === row.selector ? '' : ` (${row.selector})`}: ${row.text}${row.where.length < r.captures.length ? ` (${row.where.join(', ')})` : ''}`);
+    for (const row of r.rows) lines.push(`  - ${row.name}${row.name === row.selector ? '' : ` (${row.selector})`}: ${row.text} — ${row.where}`);
     if (r.rows.length === 0) lines.push('  none verified');
     if (r.unverified.size) lines.push(`  unverified: ${[...r.unverified].map(([text, why]) => `${text} (${why})`).join('; ')}`);
   }

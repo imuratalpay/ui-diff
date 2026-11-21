@@ -47,9 +47,12 @@ describe('verdict first', () => {
     failed.captures.push({ ...failed.captures[2], id: 'x', status: 'error', error: 'timeout' });
     failed.stats = computeStats(failed.captures);
     assert.equal(verdict(failed).text, '3 measured changes on 2 routes, 1 capture failed');
-    const perTheme = twoRoutes();
-    perTheme.captures[0].styleDiff!.changes.push(change('Sign up', 'padding', '6px 12px', '10px 18px'));
-    assert.equal(verdict(perTheme).text, '3 measured changes on 2 routes', 'one element changed differently on two captures is one change');
+    const sameOnTwo = twoRoutes();
+    sameOnTwo.captures.push({ ...sameOnTwo.captures[0], id: 'home-mobile', viewport: 'mobile' });
+    sameOnTwo.stats = computeStats(sameOnTwo.captures);
+    assert.equal(verdict(sameOnTwo).text, '3 measured changes on 2 routes', 'the same change on two captures is one change');
+    sameOnTwo.captures[3] = { ...sameOnTwo.captures[3], styleDiff: { ...sameOnTwo.captures[3].styleDiff!, changes: [change('Sign up', 'padding', '6px 12px', '10px 18px')] } };
+    assert.equal(verdict(sameOnTwo).text, '4 measured changes on 2 routes', 'a different old value on another capture is its own change');
     const unverified = twoRoutes();
     unverified.captures[1].styleDiff!.changes[0] = { ...unverified.captures[1].styleDiff!.changes[0], verified: false, unverified: ['no changed pixels in its area'] };
     assert.equal(verdict(unverified).text, '2 measured changes on 1 route, pixel changes on 1 more route', 'unverified changes are not counted');
@@ -61,7 +64,7 @@ describe('verdict first', () => {
     const body = renderComment(r, { id: 'default', title: 'UI diff', link: (p) => p });
     const lines = body.split('\n');
     assert.equal(lines[1], '### UI diff — 3 measured changes on 2 routes');
-    assert.match(body, /#### Measured changes\n\n\*\*`\/`\*\*\n\n- `Sign up`: padding 8px 14px → 10px 18px\n- `Hero title`: font-size 32px → 36px\n\n\*\*`\/pricing`\*\*\n\n- `Pro price`: text '\$9' → '\$12'\n/);
+    assert.match(body, /#### Measured changes\n\n\*\*`\/`\*\*\n\n- `Sign up`: padding 8px 14px → 10px 18px — desktop\n- `Hero title`: font-size 32px → 36px — desktop\n\n\*\*`\/pricing`\*\*\n\n- `Pro price`: text '\$9' → '\$12' — desktop\n/);
     assert.match(body, /#### Pixel changes with no measured change\n\n- `\/pricing · desktop` 120×40px at 0,400 — no measured style, text or size change\n/);
     const order = ['#### Measured changes', '#### Images', 'compare/home__pair-1.png', '<details><summary>Blink and diff</summary>', '#### Pixel changes with no measured change', '<summary>Timing · ⏱ 22s</summary>', '[report.json](report.json)'].map((x) => body.indexOf(x));
     assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), `in reading order: ${order.join(', ')}`);

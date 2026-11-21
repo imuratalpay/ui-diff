@@ -54,8 +54,8 @@ describe('ui-diff check', { timeout: 300_000 }, () => {
     writeFileSync(path.join(repo, 'styles.css'), css('10px 18px'));
     const result = check('--open');
     assert.equal(result.status, 1, result.stderr);
-    assert.match(result.stdout, /^ui-diff check: 1 measured change on 1 route \(exit 1\)\nbase main @ [0-9a-f]{7} → head working tree @ [0-9a-f]{7} \+ uncommitted changes/);
-    assert.match(result.stdout, /\nMeasured changes on \/\n {2}- link 'Get started' \(a\.cta\): size .* · padding 8px 14px → 10px 18px\n/);
+    assert.match(result.stdout, /^ui-diff check: 2 measured changes on 1 route \(exit 1\)\nbase main @ [0-9a-f]{7} → head working tree @ [0-9a-f]{7} \+ uncommitted changes/);
+    assert.match(result.stdout, /\nMeasured changes on \/\n {2}- link 'Get started' \(a\.cta\): size [^\n]* — desktop\n {2}- link 'Get started' \(a\.cta\): padding 8px 14px → 10px 18px — desktop\n/);
     assert.match(result.stdout, /Report: \.ui-diff\/out\/report\.json · images: \.ui-diff\/out\/compare\//);
     assert.ok(existsSync(path.join(repo, '.ui-diff', 'out', 'report.json')));
     assert.ok(existsSync(path.join(repo, '.ui-diff', 'out', 'compare', 'home__desktop__light.png')));

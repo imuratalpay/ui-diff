@@ -1,3 +1,4 @@
+import type { MeasuredRow } from './verdict.js';
 import type { A11yIssue, FocusDelta } from './a11y.js';
 import { describeDependency, type DependencyChange } from './deps.js';
 import type { ElementChange, RegionExplanation } from './elements.js';
@@ -230,6 +231,11 @@ export interface Report {
   regions?: { focus: string[]; ignore: string[] };
   /** Set when base and head were captured differently on some capture: what differed, and where. */
   notComparable?: Array<{ key: string; captures: string[] }>;
+  /**
+   * Verified measured changes grouped by route, element, property and old → new value, as the
+   * comment lists them; each group keeps the captures it was seen on.
+   */
+  measured?: Array<MeasuredRow & { route: string }>;
   timings?: Timings;
   warnings: string[];
   stats: { captures: number; changed: number; unchanged: number; added: number; removed: number; errors: number };

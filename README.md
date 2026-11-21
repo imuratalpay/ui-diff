@@ -241,8 +241,11 @@ most useful first:
    captured differently (fonts, browser, viewport, pixel ratio, clock…), in which case the run is
    never reported as clean.
 2. **Your summary**, when the agent or you wrote `.ui-diff/summary.md`.
-3. **Measured changes**, grouped by route, element first and then each property `old → new`,
-   biggest first. A change seen on only some viewports or themes says where. Changes that could not
+3. **Measured changes**, grouped by route, one row per element, property and `old → new` value,
+   biggest element first, each with the variants it was seen on (`desktop, mobile · light, dark`).
+   A value that differs by variant (a background that is different in dark mode) gets one row per
+   value. The verdict counts these rows, and `report.json` keeps them under `measured` with the
+   captures of each. Changes that could not
    be verified (matched with less than `styleDiff.minConfidence`, or with no changed pixels under
    them) sit on a small "Unverified" line with the reason; none is dropped.
 4. **Images**: per changed area a still `base | head` pair with the changed boxes outlined and a
