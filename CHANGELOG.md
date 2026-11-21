@@ -59,7 +59,8 @@ cannot be trusted.
 
 - `ui-diff check` compares your working tree, uncommitted changes included, with the merge base of
   the default branch, posts nothing, and prints the same order as the comment. Exit code 0 means no
-  visual changes, 1 changes, 2 errors, so it can gate a pre-push hook.
+  visual changes, 1 changes, 2 errors, so it can gate a pre-push hook. `--open` opens the images
+  folder and `report.json` with the system's default app.
 - Base captures are cached in `.ui-diff/cache/` and reused while the base commit, capture settings,
   browser and ui-diff version stay the same. `--no-cache` captures base again; `ui-diff cache-key`
   prints the key for a CI cache. The ten newest entries are kept.

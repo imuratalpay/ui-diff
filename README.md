@@ -224,7 +224,8 @@ pairs, pixel changes nothing measured explains, failures and warnings, then how 
 and the timing. The exit code is 0 when nothing changed visually (or no UI file changed), 1 when
 something did and 2 on any error, so it can gate a pre-push hook:
 `ui-diff check --quiet || exit 1` in `.git/hooks/pre-push`. `--json` prints the verdict, exit code
-and stats instead. `check` shares the [base cache](#base-cache) with `run`, so a second check
+and stats instead. `--open` opens `.ui-diff/out/compare/` and `.ui-diff/out/report.json` with your
+system's default app and says which it opened, or that there was nothing to open. `check` shares the [base cache](#base-cache) with `run`, so a second check
 against the same base skips capturing base.
 
 ### The comment

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -26,12 +26,17 @@ const css = (padding: string) => `body { margin: 32px; font: 18px Arial, sans-se
 describe('ui-diff check', { timeout: 300_000 }, () => {
   let dir: string;
   let repo: string;
-  const check = (...args: string[]) => spawnSync(process.execPath, ['--import', import.meta.resolve('tsx'), path.join(skillRoot, 'src', 'cli.ts'), 'check', ...args], { cwd: repo, encoding: 'utf8' });
+  // A stand-in for the desktop's default handler: records what it was asked to open.
+  const env = () => ({ ...process.env, PATH: `${path.join(dir, 'bin')}${path.delimiter}${process.env.PATH}` });
+  const check = (...args: string[]) => spawnSync(process.execPath, ['--import', import.meta.resolve('tsx'), path.join(skillRoot, 'src', 'cli.ts'), 'check', ...args], { cwd: repo, encoding: 'utf8', env: env() });
 
   before(() => {
     dir = mkdtempSync(path.join(os.tmpdir(), 'ui-diff-check-'));
     repo = path.join(dir, 'repo');
     mkdirSync(repo);
+    mkdirSync(path.join(dir, 'bin'));
+    writeFileSync(path.join(dir, 'bin', 'xdg-open'), `#!/bin/sh\necho "$1" >> ${JSON.stringify(path.join(dir, 'opened.txt'))}\n`);
+    chmodSync(path.join(dir, 'bin', 'xdg-open'), 0o755);
     git(repo, 'init', '-q', '-b', 'main');
     writeFileSync(path.join(repo, 'serve.mjs'), SERVER);
     writeFileSync(path.join(repo, 'index.html'), HTML);
@@ -54,7 +59,8 @@ describe('ui-diff check', { timeout: 300_000 }, () => {
     assert.match(result.stdout, /Report: \.ui-diff\/out\/report\.json · images: \.ui-diff\/out\/compare\//);
     assert.ok(existsSync(path.join(repo, '.ui-diff', 'out', 'report.json')));
     assert.ok(existsSync(path.join(repo, '.ui-diff', 'out', 'compare', 'home__desktop__light.png')));
-    assert.match(result.stderr, /no HTML report in \.ui-diff\/out, so nothing to open/);
+    assert.match(result.stderr, /opened \.ui-diff\/out\/compare\/ and \.ui-diff\/out\/report\.json with xdg-open/);
+    assert.deepEqual(readFileSync(path.join(dir, 'opened.txt'), 'utf8').trim().split('\n'), [path.join(repo, '.ui-diff', 'out', 'compare'), path.join(repo, '.ui-diff', 'out', 'report.json')], 'the default handler got the folder and the report');
     assert.equal(git(repo, 'branch', '--list', 'ui-diff-assets'), '', 'nothing pushed or published');
     assert.equal(git(repo, 'status', '--porcelain'), 'M styles.css', 'outputs and cache stay out of git status');
   });

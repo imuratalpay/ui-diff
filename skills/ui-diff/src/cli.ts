@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,6 +5,7 @@ import { parseArgs } from 'node:util';
 import { chromium } from 'playwright';
 import { resolveBrowser } from './capture.js';
 import { CHECK_EXIT, checkSummary } from './check.js';
+import { openOutputs } from './open.js';
 import { CONFIG_FILENAME, loadConfig, type ResolvedConfig } from './config.js';
 import { inferFromPath } from './conventions.js';
 import { detectChanges, detectSummary } from './detect.js';
@@ -66,7 +66,7 @@ check (also takes the run options except --pr, --head and the preview URLs)
   --base <ref>           Compare with this ref (default: the merge base with the default branch)
   --out <dir>            Output directory (default: <repo>/.ui-diff/out)
   --json                 Print the summary as JSON instead of text
-  --open                 Open the local HTML report if there is one
+  --open                 Open the images folder and report.json with the default app
 
 render
   --summary <file>       UX summary markdown (default: .ui-diff/summary.md when present)
@@ -201,21 +201,23 @@ async function cmdCheck(values: Values): Promise<number> {
     cache: !values['no-cache'],
   });
   const summary = checkSummary(outcome.report, outDir);
-  if (values.json) print({ verdict: summary.verdict, exitCode: summary.exitCode, report: path.relative(process.cwd(), outcome.reportFile), stats: outcome.report.stats, timing: outcome.report.timings ? timingLine(outcome.report.timings) : undefined });
+  const opened = values.open ? openCheckOutput(outDir) : undefined;
+  if (values.json) print({ verdict: summary.verdict, exitCode: summary.exitCode, report: path.relative(process.cwd(), outcome.reportFile), stats: outcome.report.stats, timing: outcome.report.timings ? timingLine(outcome.report.timings) : undefined, ...(opened ? { opened } : {}) });
   else process.stdout.write(summary.text);
-  if (values.open) openHtmlReport(outDir);
   return summary.exitCode;
 }
 
-/** Opens report.html from the output folder when one exists; check never builds one. */
-function openHtmlReport(outDir: string): void {
-  const html = path.join(outDir, 'report.html');
-  if (!existsSync(html)) {
-    log.info(`no HTML report in ${path.relative(process.cwd(), outDir) || '.'}, so nothing to open; see comment.local.md and compare/`);
-    return;
+/** `check --open`: the images folder and report.json, with the default app; says what it opened. */
+function openCheckOutput(outDir: string): string[] {
+  const where = path.relative(process.cwd(), outDir) || '.';
+  const result = openOutputs(outDir);
+  if (!result.opener) {
+    log.info(`nothing to open in ${where}: no images in compare/ and no report.json`);
+    return [];
   }
-  const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
-  spawn(opener, [html], { detached: true, stdio: 'ignore' }).on('error', () => log.warn(`could not open ${html} with ${opener}`)).unref();
+  if (result.opened.length) log.info(`opened ${result.opened.join(' and ')} with ${result.opener}`);
+  for (const f of result.failed) log.warn(`could not open ${f}`);
+  return result.opened;
 }
 
 async function cmdCacheKey(values: Values): Promise<void> {
