@@ -53,8 +53,9 @@ describe('timing breakdown', () => {
 
   it('sits at the end of the comment, and is absent for reports without timings', () => {
     const body = renderComment(sampleReport({ timings: TIMINGS }), { id: 'default', title: 'UI diff', link: (p) => p });
-    assert.ok(body.indexOf('<summary>⏱ 1m 12s total') > body.indexOf('#### Design tokens'));
-    assert.ok(body.indexOf('<summary>⏱ 1m 12s total') < body.indexOf('<sub>ui-diff 0.1.0'));
+    assert.ok(body.indexOf('<summary>Timing · ⏱ 1m 12s</summary>') > body.indexOf('#### Design tokens'));
+    assert.ok(body.indexOf('<summary>Timing · ⏱ 1m 12s</summary>') < body.indexOf('<sub>ui-diff 0.1.0'));
+    assert.match(body, /\*\*Timing\*\*\n\n⏱ 1m 12s total · detect/);
     assert.doesNotMatch(renderComment(sampleReport(), { id: 'default', title: 'UI diff', link: (p) => p }), /⏱/);
   });
 });

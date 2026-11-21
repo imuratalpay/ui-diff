@@ -60,7 +60,7 @@ describe('nothing captured', () => {
     const r = nothingCaptured(detect());
     assert.match(notCheckedReason(r) ?? '', /no changed file is a UI file/);
     const body = render(r);
-    assert.match(body, /### UI diff — nothing checked/);
+    assert.match(body, /### UI diff — Nothing was checked\n/);
     assert.match(body, /\*\*Nothing was checked\.\*\*/);
     assert.match(body, /not a visual all-clear/);
     assert.doesNotMatch(body, /0 unchanged|No routes were captured/);

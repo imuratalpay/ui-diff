@@ -93,7 +93,9 @@ describe('measured style diff in reports and comments', { timeout: 300_000 }, ()
     const lines = measured(report);
     assert.equal(lines.length, 1, JSON.stringify(lines));
     assert.match(lines[0], /^link 'Get started': size \d+(\.5)?×40px → \d+(\.5)?×44px · padding 8px 14px → 10px 18px$/);
-    assert.match(comment, /\*\*Measured changes on `\/`\*\*\n\n- `link 'Get started'` \(`a\.cta`\): size .* · padding 8px 14px → 10px 18px\n/);
+    assert.equal(comment.split('\n')[1], '### UI diff (local preview) — 1 measured change on 1 route', 'the verdict is the first line');
+    assert.ok(comment.indexOf('#### Measured changes') < comment.indexOf('#### Images'), 'measured changes before the images');
+    assert.match(comment, /#### Measured changes\n\n\*\*`\/`\*\*\n\n- `link 'Get started'` \(`a\.cta`\): size .* · padding 8px 14px → 10px 18px\n/);
     assert.match(comment, /<sub>link 'Get started': size .* · padding 8px 14px → 10px 18px<\/sub>/, 'the zoomed crop says what it shows');
     const { regions, changes } = report.captures[0].styleDiff!;
     const explained = regions.find((r) => r.changes.some((i) => changes[i].name === "link 'Get started'"));

@@ -60,7 +60,7 @@ describe('verification pass', () => {
     assert.deepEqual(r.notComparable, [{ key: 'fonts loaded', captures: ['/ mobile/light'] }, { key: 'fonts failed', captures: ['/ mobile/light'] }]);
     const body = renderComment(r, { id: 'default', title: 'UI diff', link: (p) => p });
     assert.match(body, /> ⚠️ \*\*Base and head were captured differently\*\* \(fonts loaded on \/ mobile\/light; fonts failed on \/ mobile\/light\)/);
-    assert.match(body, /\(captured differently, not a clean result\)/);
+    assert.equal(body.split('\n')[1], '### UI diff — No visual changes, but captures were not comparable');
     assert.match(autoSummary(r), /but base and head were captured differently \(fonts loaded, fonts failed\), so this is not a clean result/);
     assert.doesNotMatch(autoSummary(r), /^No visual changes across/);
   });

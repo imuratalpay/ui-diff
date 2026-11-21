@@ -78,7 +78,7 @@ describe('render and publish --dry-run with old and new reports', () => {
       const rendered = cli(repo, 'render', '--quiet');
       assert.equal(rendered.status, 0, rendered.stderr);
       const body = readFileSync(path.join(repo, '.ui-diff', 'comment.preview.md'), 'utf8');
-      assert.match(body, /### UI diff — 1 changed, 1 unchanged/);
+      assert.match(body, /### UI diff — Visual changes on 1 route\n/);
       const dry = cli(repo, 'publish', '--pr', '3', '--dry-run', '--quiet');
       assert.equal(dry.status, 0, dry.stderr);
       assert.match(readFileSync(path.join(repo, '.ui-diff', 'comment.md'), 'utf8'), /home__desktop__light__focus-1\.png/);

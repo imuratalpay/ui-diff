@@ -1,8 +1,9 @@
 import path from 'node:path';
-import { changeText, timingLine } from './markdown.js';
-import { describeCapture, notCheckedReason, type Report } from './report.js';
+import { timingLine } from './markdown.js';
+import { captureLabel, describeCapture, notCheckedReason, type Report } from './report.js';
+import { isShownChange, measurements, pixelOnlyAreas, verdict, type CheckVerdict } from './verdict.js';
 
-export type CheckVerdict = 'no visual changes' | 'no visual changes found, captured differently' | 'visual changes' | 'capture errors' | 'nothing checked';
+export type { CheckVerdict } from './verdict.js';
 
 /** Exit codes of `ui-diff check`: usable as a pre-push gate. */
 export const CHECK_EXIT = { clean: 0, changes: 1, error: 2 } as const;
@@ -20,50 +21,48 @@ function rel(file: string): string {
 }
 
 /**
- * The verdict and terminal summary of a local check: which captures changed, the measured changes
- * per route, warnings, where the report is, and the timing. Exit code 0 when nothing changed
- * visually (or nothing UI-related changed), 1 when something did, 2 when a capture failed.
+ * The terminal summary of a local check, in the order of the PR comment: the verdict, measured
+ * changes by route, the image pairs, pixel changes nothing measured explains, failures and
+ * warnings, then the fingerprint and timing. Exit code 0 when nothing changed visually (or nothing
+ * UI-related changed), 1 when something did, 2 when a capture failed.
  */
 export function checkSummary(report: Report, outDir: string): CheckSummary {
   const s = report.stats;
   const notChecked = notCheckedReason(report);
-  const changed = report.captures.filter((c) => c.status === 'changed' || c.status === 'added' || c.status === 'removed');
-  const verdict: CheckVerdict = s.errors ? 'capture errors' : notChecked ? 'nothing checked' : changed.length ? 'visual changes' : report.notComparable ? 'no visual changes found, captured differently' : 'no visual changes';
+  const changed = report.captures.filter(isShownChange);
+  const v = verdict(report);
   const exitCode = s.errors ? CHECK_EXIT.error : changed.length ? CHECK_EXIT.changes : CHECK_EXIT.clean;
   const themes = report.themes.length;
   const where = (c: (typeof report.captures)[number]) => `${c.viewport}${themes > 1 ? `/${c.theme}` : ''}`;
-  const lines = [`ui-diff check: ${verdict} (exit ${exitCode})`];
+  const lines = [`ui-diff check: ${v.text} (exit ${exitCode})`];
   const head = report.head.includesUncommitted ? `${report.head.label} + uncommitted changes` : report.head.label;
   lines.push(`base ${report.base.label} → head ${head} · ${report.routes.length} route${report.routes.length === 1 ? '' : 's'} · ${report.viewports.join(', ')} · ${report.themes.join(', ')}`);
   if (notChecked) lines.push('', `Nothing was checked: ${notChecked}.`);
   if (report.notComparable) lines.push('', `Base and head were captured differently (${report.notComparable.map((n) => n.key).join(', ')}): not a clean result.`);
 
+  for (const r of measurements(report)) {
+    if (r.rows.length === 0 && r.unverified.size === 0) continue;
+    lines.push('', `Measured changes on ${r.route}`);
+    for (const row of r.rows) lines.push(`  - ${row.name}${row.name === row.selector ? '' : ` (${row.selector})`}: ${row.text}${row.where.length < r.captures.length ? ` (${row.where.join(', ')})` : ''}`);
+    if (r.rows.length === 0) lines.push('  none verified');
+    if (r.unverified.size) lines.push(`  unverified: ${[...r.unverified].map(([text, why]) => `${text} (${why})`).join('; ')}`);
+  }
   if (changed.length) {
-    lines.push('', `Changed (${changed.length} of ${s.captures} capture${s.captures === 1 ? '' : 's'})`);
-    for (const c of changed) lines.push(`  ${c.route.path}  ${where(c)}  ${describeCapture(c)}`);
-    for (const route of [...new Set(changed.map((c) => c.route.path))]) {
-      const rows = new Map<string, { magnitude: number; where: string[] }>();
-      const unverified = new Set<string>();
-      const ofRoute = changed.filter((c) => c.route.path === route && c.styleDiff);
-      for (const c of ofRoute) {
-        for (const change of c.styleDiff!.changes) {
-          if (change.verified === false) {
-            unverified.add(`${change.name}: ${changeText(change)} (${change.unverified?.join('; ')})`);
-            continue;
-          }
-          const text = `${change.name}${change.name === change.selector ? '' : ` (${change.selector})`}: ${changeText(change)}`;
-          const row = rows.get(text) ?? { magnitude: 0, where: [] };
-          row.magnitude = Math.max(row.magnitude, change.magnitude);
-          if (!row.where.includes(where(c))) row.where.push(where(c));
-          rows.set(text, row);
-        }
-      }
-      if (ofRoute.length === 0) continue;
-      lines.push('', `Measured changes on ${route}`);
-      if (rows.size === 0) lines.push('  none: the pixels changed without a measured style, text or size change');
-      for (const [text, row] of [...rows].sort((a, b) => b[1].magnitude - a[1].magnitude)) lines.push(`  - ${text}${row.where.length < ofRoute.length ? ` (${row.where.join(', ')})` : ''}`);
-      if (unverified.size) lines.push(`  unverified: ${[...unverified].join('; ')}`);
+    lines.push('', `Images (${changed.length} of ${s.captures} capture${s.captures === 1 ? '' : 's'} changed)`);
+    for (const c of changed) {
+      lines.push(`  ${c.route.path}  ${where(c)}  ${describeCapture(c)}`);
+      const pictures = c.images.pairs?.length ? c.images.pairs : c.images.compare ? [c.images.compare] : [];
+      for (const p of pictures) lines.push(`    ${rel(path.join(outDir, p))}`);
     }
+  }
+  const pixelOnly = pixelOnlyAreas(report);
+  if (pixelOnly.length) {
+    lines.push('', 'Pixel changes with no measured change');
+    for (const a of pixelOnly.slice(0, 10)) {
+      const what = [a.element && `inside ${a.element}`, a.note].filter(Boolean).join(': ') || 'no element explains it';
+      lines.push(`  ${captureLabel(a.capture, themes)}  ${a.box.width}×${a.box.height}px at ${a.box.x},${a.box.y}  ${what}`);
+    }
+    if (pixelOnly.length > 10) lines.push(`  …and ${pixelOnly.length - 10} more in report.json`);
   }
   const failed = report.captures.filter((c) => c.status === 'error');
   if (failed.length) {
@@ -76,7 +75,10 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
     for (const w of warnings.slice(0, 10)) lines.push(`  ${w}`);
     if (warnings.length > 10) lines.push(`  …and ${warnings.length - 10} more in report.json`);
   }
-  lines.push('', `Report: ${rel(path.join(outDir, 'report.json'))} · images: ${rel(path.join(outDir, 'compare'))}${path.sep} · preview: ${rel(path.join(outDir, 'comment.local.md'))}`);
-  if (report.timings) lines.push(timingLine(report.timings));
-  return { verdict, exitCode, text: `${lines.join('\n')}\n` };
+  const fp = report.captures.find((c) => c.fingerprint?.head)?.fingerprint?.head;
+  if (fp || report.timings) lines.push('');
+  if (fp) lines.push(`Captured with ${fp.browser.name} ${fp.browser.version} · ${fp.freeze.clock ? `clock ${fp.freeze.clock}` : 'clock running'} · ${fp.media.locale} ${fp.media.timezone}`);
+  if (report.timings) lines.push(`${timingLine(report.timings)}`);
+  lines.push(`Report: ${rel(path.join(outDir, 'report.json'))} · images: ${rel(path.join(outDir, 'compare'))}${path.sep} · preview: ${rel(path.join(outDir, 'comment.local.md'))}`);
+  return { verdict: v.kind as CheckVerdict, exitCode, text: `${lines.join('\n')}\n` };
 }

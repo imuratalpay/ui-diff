@@ -46,12 +46,12 @@ describe('capture settings in the comment', () => {
     assert.match(captureSettingsSection(r).join('\n'), new RegExp(`<sub>User agent: desktop \`Mozilla/5\\.0 \\(X11; Linux x86_64\\) HeadlessChrome/159\\.0\\.8154\\.6\`; mobile \`${phone.replace(/[.()]/g, '\\$&')}\`</sub>`));
   });
 
-  it('sits right after the changes, with the commit pair still at the top', () => {
+  it('sits collapsed at the end, with the commit pair still at the top', () => {
     const body = renderComment(withFingerprints(), { id: 'default', title: 'UI diff', link });
     const lines = body.split('\n');
     assert.match(lines[3], /^\*\*Base\*\* `main @ 1a2b3c4` → \*\*Head\*\* `feature @ 5d6e7f8`/);
     const settings = body.indexOf('<summary>Capture settings</summary>');
-    assert.ok(settings > body.indexOf('#### Changes') && settings < body.indexOf('<summary>Unchanged'), 'between the changes and the unchanged list');
+    assert.ok(settings > body.indexOf('<summary>Unchanged') && settings < body.indexOf('<sub>ui-diff '), 'after everything else, before the footer');
   });
 
   it('is left out for reports without fingerprints (older reports)', () => {

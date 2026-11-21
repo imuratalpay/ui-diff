@@ -15,9 +15,10 @@ describe('ui-diff check summary', () => {
     const s = checkSummary(r, '/repo/.ui-diff/out');
     assert.equal(s.verdict, 'visual changes');
     assert.equal(s.exitCode, 1);
-    assert.match(s.text, /^ui-diff check: visual changes \(exit 1\)\nbase main @ 1a2b3c4 → head feature @ 5d6e7f8 · 1 route/);
-    assert.match(s.text, /\nChanged \(1 of 2 captures\)\n {2}\/ {2}desktop {2}4\.23% of pixels changed/);
+    assert.match(s.text, /^ui-diff check: 1 measured change on 1 route \(exit 1\)\nbase main @ 1a2b3c4 → head feature @ 5d6e7f8 · 1 route/);
     assert.match(s.text, /\nMeasured changes on \/\n {2}- link 'Get started' \(a\.cta\): padding 8px 14px → 10px 18px\n/);
+    assert.match(s.text, /\nImages \(1 of 2 captures changed\)\n {2}\/ {2}desktop {2}4\.23% of pixels changed/);
+    assert.ok(s.text.indexOf('Measured changes on') < s.text.indexOf('Images ('), 'measured changes before the images, as in the comment');
   });
 
   it('exits 0 when nothing changed, and when no UI file changed', () => {

@@ -40,7 +40,7 @@ describe('publish decision', () => {
     assert.equal(lines[0], stickyMarker('default'), 'keeps the sticky marker so later runs find it');
     assert.equal(lines[1], '### UI diff — no UI files changed in `5d6e7f8`');
     assert.match(decision.body, /<details><summary>Last result with UI changes \(head `5d6e7f8`\)<\/summary>/);
-    assert.match(decision.body, /### UI diff — 1 changed, 1 unchanged/, 'the previous result is kept');
+    assert.match(decision.body, /### UI diff — Visual changes on 1 route/, 'the previous result is kept');
     assert.match(decision.body, /home__desktop__light__focus-1\.png/, 'with its images');
     assert.equal(decision.body.match(/<!-- ui-diff:sticky /g)?.length, 1);
     assert.equal(decision.body.match(/<!-- ui-diff:meta /g)?.length, 1, 'only the meta of this run');
@@ -58,7 +58,7 @@ describe('publish decision', () => {
     assert.equal(second.body.split('\n')[1], '### UI diff — no UI files changed in `9f9f9f9`');
     assert.equal(second.body.match(/<details><summary>Last result/g)?.length, 1, 'not nested');
     assert.match(second.body, /Last result with UI changes \(head `5d6e7f8`\)/);
-    assert.match(second.body, /### UI diff — 1 changed, 1 unchanged/);
+    assert.match(second.body, /### UI diff — Visual changes on 1 route/);
   });
 
   it('stays a single line when the existing comment was a note without a kept result', () => {

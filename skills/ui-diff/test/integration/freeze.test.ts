@@ -164,7 +164,7 @@ describe('input freeze', { timeout: 300_000, skip: !FONT && 'no TrueType font fo
     assert.equal(t.extras!.motionMs, undefined);
     const phases = t.detectMs + t.prepare!.wallMs + t.browserMs! + t.capture!.ms + t.diffMs! + (t.extras!.a11yMs ?? 0);
     assert.ok(phases <= t.totalMs + t.extras!.a11yMs!, `phases ${phases} fit in total ${t.totalMs} (a11y overlaps capture)`);
-    assert.match(readFileSync(path.join(outDir, 'comment.local.md'), 'utf8'), /<details><summary>⏱ .* total · detect .* · prepare .*\(base: none .*, boot .* ‖ head: none .*, boot .*\)/);
+    assert.match(readFileSync(path.join(outDir, 'comment.local.md'), 'utf8'), /<details><summary>Capture settings and timing · ⏱ .*<\/summary>[\s\S]*\n⏱ .* total · detect .* · prepare .*\(base: none .*, boot .* ‖ head: none .*, boot .*\)/);
   });
 
   it('shows the same page as changed when the clock is not frozen (the fixture really moves)', async () => {

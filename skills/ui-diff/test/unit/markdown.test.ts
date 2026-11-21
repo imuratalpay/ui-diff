@@ -10,7 +10,8 @@ describe('comment rendering', () => {
   it('starts with the hidden sticky marker and includes every section', () => {
     const body = renderComment(sampleReport(), { id: 'default', title: 'UI diff', link, summary: '**What changed**\n- Buttons are now pills.' });
     assert.ok(body.startsWith(stickyMarker('default')));
-    assert.match(body, /### UI diff — 1 changed, 1 unchanged/);
+    assert.equal(body.split('\n')[1], '### UI diff — Visual changes on 1 route', 'the verdict comes first');
+    assert.match(body, /<sub>2 captures · 1 changed · 1 unchanged<\/sub>/);
     assert.match(body, /\*\*Base\*\* `main @ 1a2b3c4` → \*\*Head\*\* `feature @ 5d6e7f8`/);
     assert.match(body, /Buttons are now pills/);
     assert.match(body, /4\.23% of pixels changed · 1 area · page height 1600 → 1744px/);
@@ -26,9 +27,10 @@ describe('comment rendering', () => {
     assert.match(body, /<!-- ui-diff:meta \{"head":"5d6e7f8a"/);
   });
 
-  it('falls back to the automatic summary', () => {
+  it('lets the verdict and the measured changes stand in for a summary nobody wrote', () => {
     const body = renderComment(sampleReport(), { id: 'default', title: 'UI diff', link });
-    assert.match(body, /`\/` changed on desktop/);
+    assert.doesNotMatch(body, /#### Summary/);
+    assert.match(body, /#### Images/);
   });
 
   it('keeps variant picks that reviewers ticked', () => {
@@ -73,7 +75,7 @@ describe('comment rendering', () => {
 
   it('lists exactly the images it references', () => {
     const refs = referencedImages(sampleReport(), { id: 'default', title: 'UI diff' });
-    assert.deepEqual(refs.sort(), ['compare/home__desktop__light.png', 'compare/home__desktop__light__focus-1.png', 'motion/home.gif', 'variants/hero-1.png', 'variants/hero-2.png']);
+    assert.deepEqual(refs.sort(), ['compare/home__desktop__light.png', 'compare/home__desktop__light__focus-1.png', 'motion/home.gif', 'report.json', 'variants/hero-1.png', 'variants/hero-2.png'], 'report.json too: the footer links it');
   });
 
   it('formats helpers', () => {
