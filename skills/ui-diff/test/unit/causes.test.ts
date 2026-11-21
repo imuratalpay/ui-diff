@@ -49,13 +49,13 @@ function el(over: Over): StyledElement {
  * A centered hero row as in the CI run: the button grows by its padding, its row and the hero grow
  * with it, it moves up and left in the centered row, and the link beside it and the section below move.
  */
-function hero(o: { padding: string; background: string; width: number; height: number; text?: string }): StyledElement[] {
+function hero(o: { padding: string; background: string; width: number; height: number; text?: string; gap?: string }): StyledElement[] {
   const grow = o.height - 40;
   const [pv, ph] = o.padding.split(' ');
   return [
     el({ tag: 'main', box: { x: 0, y: 0, width: 1000, height: 700 + grow } }),
     el({ tag: 'header', selector: 'header.hero', parent: 0, box: { x: 0, y: 0, width: 1000, height: 240 + grow } }),
-    el({ tag: 'div', selector: 'div.actions', parent: 1, box: { x: 0, y: 160, width: 1000, height: o.height }, styles: { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: ['16px', '16px'] } }),
+    el({ tag: 'div', selector: 'div.actions', parent: 1, box: { x: 0, y: 160, width: 1000, height: o.height }, styles: { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: [o.gap ?? '16px', o.gap ?? '16px'] } }),
     el({ tag: 'a', selector: 'a.cta', name: "link 'Start free trial'", ownText: o.text ?? 'Start free trial', label: o.text ?? 'Start free trial', role: 'link', parent: 2, box: { x: 400 - (o.width - 109.5) / 2, y: 160, width: o.width, height: o.height }, styles: { padding: [pv, ph, pv, ph], backgroundColor: o.background, color: 'rgb(255, 255, 255)' } }),
     el({ tag: 'a', selector: 'a.more', name: "link 'See how it works'", ownText: 'See how it works', label: 'See how it works', role: 'link', parent: 2, box: { x: 525.5 + (o.width - 109.5) / 2, y: 160 + (o.height - 24) / 2, width: 130, height: 24 } }),
     el({ tag: 'section', selector: 'section.plans', ownText: 'Plans', parent: 0, box: { x: 0, y: 240 + grow, width: 1000, height: 460 } }),
@@ -103,6 +103,11 @@ describe('causes and effects', () => {
   it('counts a parent that grew from a child padding change as an effect of it', () => {
     const { changes } = report(hero(BEFORE), hero({ ...BEFORE, padding: '12px 18px', width: 117.5, height: 48 }));
     assert.deepEqual(kinds(changes).filter((k) => /^(div\.actions|header\.hero|main) /.test(k)), ['main size effect ← h3:padding', 'header.hero size effect ← h3:padding', 'div.actions size effect ← h3:padding']);
+  });
+
+  it('puts a row that grew taller with its child under the child padding, not under its own gap change', () => {
+    const { changes } = report(hero(BEFORE), hero({ ...BEFORE, padding: '12px 18px', width: 117.5, height: 48, gap: '17px' }));
+    assert.deepEqual(kinds(changes).filter((k) => /^(div\.actions|header\.hero|main|section\.plans) /.test(k)).sort(), ['div.actions gap cause', 'div.actions size effect ← h3:padding', 'header.hero size effect ← h3:padding', 'main size effect ← h3:padding', 'section.plans position effect ← h3:padding']);
   });
 
   it('keeps every change in report.json with its kind and, for effects, the row of the cause', () => {

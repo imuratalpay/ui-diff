@@ -376,9 +376,10 @@ export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: El
     const r = raw.get(hi)!;
     if (!resized(r)) continue;
     const h = head.elements[hi];
-    let cause = geometryCause(hi, SIZE_CAUSES)?.id;
-    if (!cause) {
-      // A child that grew, moved by its margin, or was added or removed.
+    let cause: string | undefined;
+    {
+      // A child that grew, moved by its margin, or was added or removed: a row grows taller with its
+      // button whatever happened to its own gap.
       let best: { id: string; amount: number } | undefined;
       const consider = (id: string | undefined, amount: number) => {
         if (id && (!best || amount > best.amount)) best = { id, amount };
@@ -392,6 +393,7 @@ export function diffElements(base: StyleSnapshot, head: StyleSnapshot, match: El
       for (const ri of match.removed) if (base.elements[ri].parent === r.pair.base) consider(subtreeId(base.elements, removedSet, ri, 'b'), Infinity);
       cause = best?.id;
     }
+    cause ??= geometryCause(hi, SIZE_CAUSES)?.id;
     // An ancestor's authored change (padding, font size, layout) reshapes what it contains.
     for (let p = h.parent; !cause && p != null; p = head.elements[p].parent) cause = geometryCause(p, ANCESTOR_CAUSES)?.id;
     sizeCause.set(hi, cause);
