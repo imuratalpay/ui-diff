@@ -20,6 +20,25 @@ describe('config', () => {
     assert.equal(cfg.dirRel, '');
   });
 
+  it('freezes clock, randomness, animations and fonts by default', () => {
+    const { freeze } = parseConfig({}, { repoRoot: '/repo' });
+    assert.deepEqual(freeze, { clock: true, time: 'run-start', random: true, seed: 0x2f6b3a1d, animations: true, fonts: true, fontTimeoutMs: 8000 });
+    assert.equal(parseConfig({ freeze: { clock: false } }, { repoRoot: '/repo' }).freeze.clock, false);
+    assert.throws(() => parseConfig({ freeze: { time: 'yesterday' } }, { repoRoot: '/repo' }), /freeze\.time: must be "run-start" or an ISO timestamp/);
+  });
+
+  it('keeps the older capture switches working', () => {
+    const legacy = parseConfig({ capture: { fixedTime: '2026-01-01T00:00:00Z', stableRandom: false, disableAnimations: false, waitForFonts: false } }, { repoRoot: '/repo' }).freeze;
+    assert.equal(legacy.time, '2026-01-01T00:00:00Z');
+    assert.equal(legacy.clock, true);
+    assert.equal(legacy.random, false);
+    assert.equal(legacy.animations, false);
+    assert.equal(legacy.fonts, false);
+    assert.equal(parseConfig({ capture: { fixedTime: '2026-01-01T00:00:00Z' }, freeze: { time: '2027-05-05T00:00:00Z' } }, { repoRoot: '/repo' }).freeze.time, '2027-05-05T00:00:00Z');
+    assert.equal(parseConfig({ capture: { fixedTime: false } }, { repoRoot: '/repo' }).freeze.clock, true, 'what init used to write now means "not set"');
+    assert.throws(() => parseConfig({ capture: { fixedTime: 'soon' } }, { repoRoot: '/repo' }), /capture\.fixedTime is not a valid date: soon/);
+  });
+
   it('resolves route globs relative to the config directory', () => {
     const cfg = parseConfig(
       { routes: ['/', { path: '/pricing', files: ['src/pricing/**', '../../packages/ui/**', '/shared/*.css'] }], globalFiles: ['styles.css'] },

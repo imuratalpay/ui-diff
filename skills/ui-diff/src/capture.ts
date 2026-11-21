@@ -5,7 +5,7 @@ import { chromium, devices, type Browser, type BrowserContext, type BrowserConte
 import { collectFocusOrder, runAxe, type AxeViolation, type FocusStop } from './a11y.js';
 import { applyAuth, type ResolvedAuth } from './auth.js';
 import type { ResolvedConfig, ResolvedRoute, ThemeConfig, ViewportConfig } from './config.js';
-import { DEV_OVERLAY_SELECTORS, freezeAnimations, hideCss, initScript, pageHeight, scrollThrough, waitForFontsAndImages } from './determinism.js';
+import { DEV_OVERLAY_SELECTORS, fontState, freezeAnimations, hideCss, initScript, pageHeight, scrollThrough, settleFonts, waitForFontsAndImages, type FontState } from './determinism.js';
 import { exec } from './exec.js';
 import type { Box } from './image.js';
 import { log, redact, UiDiffError } from './log.js';
@@ -52,6 +52,8 @@ export interface CaptureRecord {
   focusOrder?: FocusStop[];
   /** Route actions skipped because no element matched them on this side. */
   skippedActions?: string[];
+  /** Web fonts loaded, failed or still loading when the screenshot was taken. */
+  fonts?: FontState;
   /** `window.devicePixelRatio` measured in the page: device pixels per CSS pixel in the screenshot. */
   scale?: number;
   durationMs: number;
@@ -155,7 +157,7 @@ export function contextOptions(viewport: ViewportConfig, theme: ThemeConfig | un
     hasTouch: viewport.hasTouch ?? device?.hasTouch ?? false,
     userAgent: viewport.userAgent ?? device?.userAgent ?? (isMobile ? MOBILE_UA : undefined),
     colorScheme: theme?.colorScheme ?? 'light',
-    reducedMotion: motion || !cfg.capture.disableAnimations ? 'no-preference' : 'reduce',
+    reducedMotion: motion || !cfg.freeze.animations ? 'no-preference' : 'reduce',
     locale: cfg.capture.locale,
     timezoneId: cfg.capture.timezoneId,
     serviceWorkers: 'block',
@@ -203,8 +205,14 @@ export async function launchBrowser(): Promise<Browser> {
 export interface SessionOptions {
   cfg: ResolvedConfig;
   auth?: ResolvedAuth;
-  /** Instant used when capture.fixedTime is "run-start". */
+  /** Instant used when freeze.time is "run-start". */
   runStart: Date;
+}
+
+/** The instant Date is frozen at for still captures, or undefined when freeze.clock is off. */
+export function frozenTime(cfg: ResolvedConfig, runStart: Date): Date | undefined {
+  if (!cfg.freeze.clock) return undefined;
+  return cfg.freeze.time === 'run-start' ? runStart : new Date(cfg.freeze.time);
 }
 
 export class CaptureSession {
@@ -217,19 +225,22 @@ export class CaptureSession {
     const { cfg } = this.opts;
     // Motion clips always run with prefers-reduced-motion: no-preference; static captures may stay reduced.
     const context = await this.browser.newContext({ ...contextOptions(viewport, theme, cfg, motion), ...extra, ...(motion ? { reducedMotion: 'no-preference' as const } : {}) });
-    const fixed = cfg.capture.fixedTime;
-    if (fixed && !motion) {
-      const instant = fixed === 'run-start' ? this.opts.runStart : new Date(fixed);
-      if (Number.isNaN(instant.getTime())) throw new UiDiffError(`capture.fixedTime is not a valid date: ${fixed}`);
+    const instant = frozenTime(cfg, this.opts.runStart);
+    if (instant && !motion) {
       await context.clock.setFixedTime(instant);
     } else if (!motion) {
       // Time keeps flowing; installed up front so timers can be paused later without performance.now() jumping.
       await context.clock.install();
     }
-    await context.addInitScript({ content: initScript({ stableRandom: cfg.capture.stableRandom, localStorage: theme?.localStorage }) });
+    await context.addInitScript({ content: initScript({ seed: cfg.freeze.random ? cfg.freeze.seed : undefined, localStorage: theme?.localStorage }) });
     await applyAuth(context, this.opts.auth);
     context.setDefaultTimeout(cfg.capture.timeoutMs);
     return context;
+  }
+
+  private async waitForFonts(page: Page, timeoutMs: number): Promise<void> {
+    await settleFonts(page, timeoutMs);
+    await waitForFontsAndImages(page, timeoutMs);
   }
 
   /**
@@ -245,10 +256,10 @@ export class CaptureSession {
     }
     if (route.waitFor) await page.locator(route.waitFor).first().waitFor({ state: 'visible', timeout: cfg.capture.timeoutMs });
     if (opts.freeze) await freezeAnimations(page);
-    if (cfg.capture.waitForFonts) await waitForFontsAndImages(page, 8000);
+    if (cfg.freeze.fonts) await this.waitForFonts(page, cfg.freeze.fontTimeoutMs);
     if (opts.fullPage && cfg.capture.scrollToLoad) {
       await scrollThrough(page, cfg.capture.maxHeight);
-      if (cfg.capture.waitForFonts) await waitForFontsAndImages(page, 5000);
+      if (cfg.freeze.fonts) await this.waitForFonts(page, Math.min(5000, cfg.freeze.fontTimeoutMs));
     }
     let skippedActions: string[] = [];
     if (route.actions.length) {
@@ -284,7 +295,7 @@ export class CaptureSession {
       page.screenshot({
         fullPage,
         clip,
-        animations: cfg.capture.disableAnimations ? 'disabled' : 'allow',
+        animations: cfg.freeze.animations ? 'disabled' : 'allow',
         caret: 'hide',
         scale: 'device',
         mask: masks.map((s) => page.locator(s)),
@@ -340,10 +351,11 @@ export class CaptureSession {
       page.on('pageerror', (error) => {
         if (record.pageErrors.length < 10) record.pageErrors.push(redact(error.message).slice(0, 300));
       });
-      const opened = await this.openAndSettle(page, target.url, target.route, { freeze: cfg.capture.disableAnimations, fullPage });
+      const opened = await this.openAndSettle(page, target.url, target.route, { freeze: cfg.freeze.animations, fullPage });
       record.httpStatus = opened.status;
       if (opened.skippedActions.length) record.skippedActions = opened.skippedActions;
       record.scale = await page.evaluate(() => window.devicePixelRatio);
+      record.fonts = await fontState(page);
       const shot = await this.screenshot(page, target.route, fullPage);
       mkdirSync(path.dirname(target.file), { recursive: true });
       writeFileSync(target.file, shot.buffer);

@@ -30,7 +30,7 @@ describe('style snapshot', { timeout: 120_000 }, () => {
   before(async () => {
     browser = await launchBrowser();
     page = await browser.newPage();
-    await page.addInitScript({ content: initScript({ stableRandom: false }) });
+    await page.addInitScript({ content: initScript({}) });
     await page.route('http://ui-diff.test/**', (route) => route.fulfill({ body: html, contentType: 'text/html' }));
   });
 

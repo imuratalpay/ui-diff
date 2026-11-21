@@ -40,12 +40,12 @@ export function changedRegions(a: Buffer, b: Buffer, max = 3): Box[] {
 /** The "page did not settle" warning, naming what kept changing when that is known. */
 export function unsettledWarning(label: string, record: { unsettled?: UnsettledRegion[]; frozeTimers?: boolean; stable: boolean }): string {
   const regions = record.unsettled ?? [];
-  if (regions.length === 0) return `${label}: page did not settle (animations or live data?); mask the changing area (capture.mask) or set capture.fixedTime`;
+  if (regions.length === 0) return `${label}: page did not settle (animations or live data?); mask the changing area (capture.mask), or keep freeze.clock on if it shows the time`;
   const where = regions.map((r) => `${r.selector ?? 'an area'} (${r.box.width}×${r.box.height} px at ${r.box.x},${r.box.y})`).join(', ');
   const selectors = [...new Set(regions.map((r) => r.selector).filter((s): s is string => Boolean(s)))];
   const frozen = record.frozeTimers && record.stable ? '; timers were paused for the screenshot, but where it stops depends on load timing' : '';
   const mask = selectors.length ? `mask it with "capture": { "mask": ${JSON.stringify(selectors)} }` : 'mask it (capture.mask)';
-  return `${label}: page did not settle: ${where} kept changing between screenshots${frozen}. To compare reliably, ${mask} or, if it shows the time, set capture.fixedTime`;
+  return `${label}: page did not settle: ${where} kept changing between screenshots${frozen}. To compare reliably, ${mask} or, if it shows the time, keep freeze.clock on`;
 }
 
 /**

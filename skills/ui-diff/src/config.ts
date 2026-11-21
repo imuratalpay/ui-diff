@@ -83,13 +83,13 @@ const CaptureSchema = z
   .object({
     fullPage: z.boolean().default(true),
     maxHeight: z.number().int().min(200).max(16000).default(4000),
-    disableAnimations: z.boolean().default(true),
-    waitForFonts: z.boolean().default(true),
+    disableAnimations: z.boolean().default(true).describe('Older switch: false turns off freeze.animations'),
+    waitForFonts: z.boolean().default(true).describe('Older switch: false turns off freeze.fonts'),
     fixedTime: z
       .union([z.string(), z.literal(false)])
       .default(false)
-      .describe('Freeze Date: an ISO timestamp, "run-start" (same instant on both sides) or false'),
-    stableRandom: z.boolean().default(true).describe('Seed Math.random so random content renders the same on both sides'),
+      .describe('Older form of freeze.time: an ISO timestamp or "run-start" sets it; false leaves freeze.time in charge'),
+    stableRandom: z.boolean().default(true).describe('Older switch: false turns off freeze.random'),
     mask: z.array(z.string()).default([]),
     maskColor: z.string().default('#A3A3A3'),
     hide: z.array(z.string()).default([]),
@@ -108,6 +108,22 @@ const CaptureSchema = z
       .min(10)
       .default(2500)
       .describe('Most visible elements whose computed styles are recorded per capture (token audit); a warning says when a page has more'),
+  })
+  .strict();
+
+const FreezeSchema = z
+  .object({
+    clock: z.boolean().default(true).describe('Freeze Date at `time` with the Playwright clock on both sides (timers keep running), so clocks and "2 min ago" match'),
+    time: z
+      .string()
+      .default('run-start')
+      .refine((t) => t === 'run-start' || !Number.isNaN(new Date(t).getTime()), 'must be "run-start" or an ISO timestamp')
+      .describe('"run-start" (the same instant on both sides) or an ISO timestamp'),
+    random: z.boolean().default(true).describe('Seed Math.random and crypto.getRandomValues / randomUUID'),
+    seed: z.number().int().default(0x2f6b3a1d).describe('Seed for the random generators'),
+    animations: z.boolean().default(true).describe('Finish CSS animations and transitions, hide the caret and set prefers-reduced-motion for still captures'),
+    fonts: z.boolean().default(true).describe('Wait until no web font is loading (document.fonts) before capturing'),
+    fontTimeoutMs: z.number().int().min(0).max(30000).default(8000).describe('Longest wait for fonts'),
   })
   .strict();
 
@@ -285,6 +301,7 @@ export const ConfigSchema = z
       ]),
     themes: z.array(ThemeSchema).min(1).default([{ name: 'light', colorScheme: 'light' }]),
     capture: CaptureSchema.prefault({}),
+    freeze: FreezeSchema.prefault({}).describe('Inputs frozen before every still capture, the same on both sides'),
     diff: DiffSchema.prefault({}),
     preview: z
       .object({ base: z.string().optional(), head: z.string().optional() })
@@ -434,6 +451,21 @@ export function toSlashes(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
+/**
+ * The capture.* switches that predate `freeze` keep working: turning one off turns the matching
+ * freeze off, and a capture.fixedTime timestamp sets freeze.time unless freeze.time is given.
+ * `capture.fixedTime: false` (what `init` wrote) now means "not set", so the clock is frozen at run
+ * start unless freeze.clock is false.
+ */
+function applyLegacyFreeze(parsed: RawConfig, explicitTime: boolean): void {
+  const { capture, freeze } = parsed;
+  if (capture.fixedTime !== false && !explicitTime) freeze.time = capture.fixedTime;
+  if (!capture.stableRandom) freeze.random = false;
+  if (!capture.disableAnimations) freeze.animations = false;
+  if (!capture.waitForFonts) freeze.fonts = false;
+  if (freeze.time !== 'run-start' && Number.isNaN(new Date(freeze.time).getTime())) throw new UiDiffError(`capture.fixedTime is not a valid date: ${freeze.time}`);
+}
+
 export function parseConfig(raw: unknown, opts: { file?: string; repoRoot: string }): ResolvedConfig {
   const result = ConfigSchema.safeParse(raw);
   const label = opts.file ? path.relative(process.cwd(), opts.file) || opts.file : 'config';
@@ -443,6 +475,7 @@ export function parseConfig(raw: unknown, opts: { file?: string; repoRoot: strin
   const parsed = result.data;
   const explicitCap = (raw as { capture?: { styleMaxElements?: unknown } } | null)?.capture?.styleMaxElements !== undefined;
   if (!explicitCap && parsed.tokens.maxElements !== undefined) parsed.capture.styleMaxElements = parsed.tokens.maxElements;
+  applyLegacyFreeze(parsed, (raw as { freeze?: { time?: unknown } } | null)?.freeze?.time !== undefined);
   parsed.cwd = toSlashes(parsed.cwd);
   parsed.copyFiles = parsed.copyFiles.map(toSlashes);
   parsed.tokens.files = parsed.tokens.files.map(toSlashes);

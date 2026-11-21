@@ -679,15 +679,17 @@
         },
         "disableAnimations": {
           "default": true,
+          "description": "Older switch: false turns off freeze.animations",
           "type": "boolean"
         },
         "waitForFonts": {
           "default": true,
+          "description": "Older switch: false turns off freeze.fonts",
           "type": "boolean"
         },
         "fixedTime": {
           "default": false,
-          "description": "Freeze Date: an ISO timestamp, \"run-start\" (same instant on both sides) or false",
+          "description": "Older form of freeze.time: an ISO timestamp or \"run-start\" sets it; false leaves freeze.time in charge",
           "anyOf": [
             {
               "type": "string"
@@ -700,7 +702,7 @@
         },
         "stableRandom": {
           "default": true,
-          "description": "Seed Math.random so random content renders the same on both sides",
+          "description": "Older switch: false turns off freeze.random",
           "type": "boolean"
         },
         "mask": {
@@ -778,6 +780,53 @@
           "type": "integer",
           "minimum": 10,
           "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "freeze": {
+      "description": "Inputs frozen before every still capture, the same on both sides",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "clock": {
+          "default": true,
+          "description": "Freeze Date at `time` with the Playwright clock on both sides (timers keep running), so clocks and \"2 min ago\" match",
+          "type": "boolean"
+        },
+        "time": {
+          "default": "run-start",
+          "description": "\"run-start\" (the same instant on both sides) or an ISO timestamp",
+          "type": "string"
+        },
+        "random": {
+          "default": true,
+          "description": "Seed Math.random and crypto.getRandomValues / randomUUID",
+          "type": "boolean"
+        },
+        "seed": {
+          "default": 795556381,
+          "description": "Seed for the random generators",
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "animations": {
+          "default": true,
+          "description": "Finish CSS animations and transitions, hide the caret and set prefers-reduced-motion for still captures",
+          "type": "boolean"
+        },
+        "fonts": {
+          "default": true,
+          "description": "Wait until no web font is loading (document.fonts) before capturing",
+          "type": "boolean"
+        },
+        "fontTimeoutMs": {
+          "default": 8000,
+          "description": "Longest wait for fonts",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 30000
         }
       },
       "additionalProperties": false

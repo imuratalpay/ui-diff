@@ -487,7 +487,7 @@ async function cmdInit(values: Values): Promise<void> {
       { name: 'mobile', width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
     ],
     themes: [{ name: 'light', colorScheme: 'light' }],
-    capture: { mask: [], fixedTime: false },
+    capture: { mask: [] },
     a11y: { enabled: true },
   };
   if (config.routes.length === 0) config.routes = ['/'];

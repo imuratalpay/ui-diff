@@ -82,8 +82,9 @@ In one go it creates git worktrees for base (the merge base) and head, links or 
 dependencies, starts each app on a free port in its own process group, captures every
 route × viewport × theme, diffs with pixelmatch, composes `before | after | diff` images (full
 page plus zoomed crops of the changed areas), runs the enabled extras, and cleans up. Captures are
-deterministic: animations and transitions finished, fonts and images awaited, `Math.random` and
-`crypto` seeded, scrollbars hidden, scroll reset, optional frozen clock and masked selectors, and
+deterministic (`freeze`, on by default): `Date` frozen at run start, `Math.random` and `crypto`
+seeded, animations, transitions and the caret stopped, web fonts and images awaited; plus hidden
+scrollbars, scroll reset and masked selectors (`capture.mask`, for carousels and live counters), and
 each screenshot is retaken until consecutive shots match (if something keeps moving, the page's
 JavaScript timers are paused for the final shots).
 

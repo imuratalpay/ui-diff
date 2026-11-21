@@ -41,7 +41,8 @@ is read as `/` too. Globs support `**`, `*`, `?`, `{a,b}`,
     { "name": "light", "colorScheme": "light" },
     { "name": "dark", "colorScheme": "dark", "query": { "theme": "dark" } }
   ],
-  "capture": { "fixedTime": "run-start", "mask": ["[data-ui-diff-mask]"], "hide": [".intercom-launcher"] },
+  "capture": { "mask": ["[data-ui-diff-mask]"], "hide": [".intercom-launcher"] },
+  "freeze": { "time": "2026-01-15T09:30:00Z" },
   "tokens": { "enabled": true, "files": ["src/styles/tokens.css"] },
   "a11y": { "enabled": true },
   "motion": { "enabled": true }
@@ -109,10 +110,8 @@ the page loads, e.g. `{ "theme": "dark" }` for next-themes).
 |---|---|---|
 | `fullPage` | `true` | |
 | `maxHeight` | `4000` | Taller pages are clipped (reported as truncated). |
-| `disableAnimations` | `true` | Finishes CSS animations/transitions and Web Animations, sets `prefers-reduced-motion`. |
-| `waitForFonts` | `true` | Waits for `document.fonts.ready` and image decoding. |
-| `fixedTime` | `false` | Freeze `Date`: an ISO timestamp, or `"run-start"` (same instant on both sides). Timers keep running. |
-| `stableRandom` | `true` | Seeds `Math.random`, `crypto.getRandomValues` and `crypto.randomUUID`. |
+| `disableAnimations` / `waitForFonts` / `stableRandom` | `true` | Older switches: `false` turns off `freeze.animations` / `freeze.fonts` / `freeze.random`. |
+| `fixedTime` | `false` | Older form of `freeze.time`: an ISO timestamp or `"run-start"` sets it (unless `freeze.time` is given). `false` no longer means "let time run": use `freeze.clock: false`. |
 | `mask` | `[]` | Selectors painted over with `maskColor` on both sides (timestamps, avatars, live counters). Give masked elements a stable size, e.g. `font-variant-numeric: tabular-nums`. |
 | `maskColor` | `#A3A3A3` | |
 | `hide` | `[]` | Selectors hidden with `visibility: hidden` (layout preserved). |
@@ -127,6 +126,36 @@ the page loads, e.g. `{ "theme": "dark" }` for next-themes).
 
 Service workers are blocked and CSP is bypassed in the capture browser so cached or blocked
 assets do not differ between sides.
+
+## Freeze (inputs)
+
+Before every still capture, on base and head alike, ui-diff freezes the inputs that make two
+renders of the same code differ. Each is on by default and can be turned off:
+
+```json
+{ "freeze": { "clock": true, "time": "run-start", "random": true, "seed": 795556381, "animations": true, "fonts": true, "fontTimeoutMs": 8000 } }
+```
+
+| Key | Default | Notes |
+|---|---|---|
+| `clock` | `true` | `Date` is fixed at `time` through Playwright's clock API, so clocks, dates and relative times ("2 min ago") match on both sides. Timers and `requestAnimationFrame` keep running, so the page still renders. |
+| `time` | `"run-start"` | The instant: `"run-start"` (when the run began, the same on both sides) or an ISO timestamp such as `"2026-01-15T09:30:00Z"`, which also keeps it the same across runs. |
+| `random` / `seed` | `true` / `795556381` | `Math.random`, `crypto.getRandomValues` and `crypto.randomUUID` are seeded with `seed`. |
+| `animations` | `true` | CSS animations and transitions are finished, Web Animations completed, the caret hidden and `prefers-reduced-motion: reduce` set. Motion clips are not affected: they always play animations with a running clock. |
+| `fonts` | `true` | Waits for `document.fonts.ready` and then until no font face is loading on two checks in a row (a font added by a script a moment later is waited for too), up to `fontTimeoutMs`, plus image decoding. Each capture records which web fonts loaded, failed or were still loading. |
+
+**Rotating content** (carousels, tickers, live counters, ads) changes by itself even with a frozen
+clock, because it runs on timers or `requestAnimationFrame`. Mask it: the element is painted over
+with `capture.maskColor` on both sides, so whatever it shows does not count, and the rest of the
+page is still compared.
+
+```json
+{ "capture": { "mask": [".hero-carousel", "[data-testid=live-visitors]"] }, "routes": [{ "path": "/", "mask": [".ticker"] }] }
+```
+
+A "page did not settle" warning names the element that kept moving and the `mask` to add. Give
+masked elements a stable size (for example `font-variant-numeric: tabular-nums` on counters) so
+they do not push the rest of the page around.
 
 ## Diff
 

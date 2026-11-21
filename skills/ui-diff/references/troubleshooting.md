@@ -38,11 +38,13 @@ Symptoms seen when running ui-diff on real apps, and what to do. Logs are in `.u
 - **Carousels, tickers and other JavaScript animations** are not frozen by the CSS rules. Mask
   them (`capture.mask`), hide them (`capture.hide`), or have them respect
   `prefers-reduced-motion`, which ui-diff turns on.
-- **Live data** (timestamps, counters, "x minutes ago"): `capture.fixedTime` freezes `Date`;
-  otherwise mask the element and give it a stable size (`font-variant-numeric: tabular-nums`).
-- **Fonts loaded by a script after the page loads** (font loaders, `new FontFace(...)` in a timeout)
-  can be missed. Add a `waitFor` selector that appears once fonts are applied, or raise
-  `capture.settleMs`.
+- **Live data** (timestamps, counters, "x minutes ago"): `Date` is frozen by default (`freeze.clock`);
+  data that changes without the clock (a counter fetched from an API, a ticker) needs a `capture.mask`
+  with a stable size (`font-variant-numeric: tabular-nums`).
+- **Fonts that arrive late** (slow font files, `new FontFace(...)` in a timeout) are waited for
+  until none is loading, up to `freeze.fontTimeoutMs` (8 s). A font that never loads is listed as
+  failed or still loading in the capture settings; one requested later than that needs a `waitFor`
+  selector that appears once it is applied.
 - A warning "page did not settle" means consecutive screenshots of one side kept changing.
 
 ## Changes far down a page are missing

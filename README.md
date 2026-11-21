@@ -56,8 +56,8 @@ If something fails, see [Troubleshooting](#troubleshooting).
    the agent to resolve.
 2. **Runs base and head** in temporary git worktrees (dependencies linked or installed, each app
    on a free port in its own process group), or uses existing preview URLs.
-3. **Captures with Playwright, deterministically**: animations and transitions finished, fonts and
-   images awaited, `Math.random`/`crypto` seeded, optional frozen clock, masked selectors, hidden
+3. **Captures with Playwright, deterministically**: the same inputs on both sides (frozen clock,
+   seeded `Math.random`/`crypto`, animations and caret stopped, late web fonts awaited), masked selectors, hidden
    scrollbars and dev overlays, scroll reset, service workers blocked, and each shot retaken until
    consecutive screenshots match. Viewports default to desktop and mobile; themes such as
    `?theme=dark` are configurable.
@@ -200,7 +200,8 @@ reduced to a one-line "no UI files changed" note.
   ],
   "globalFiles": ["src/styles/**", "tailwind.config.*"],
   "themes": [{ "name": "light" }, { "name": "dark", "colorScheme": "dark", "query": { "theme": "dark" } }],
-  "capture": { "mask": ["[data-testid=timestamp]"], "fixedTime": "run-start" },
+  "capture": { "mask": [".hero-carousel"] },
+  "freeze": { "time": "2026-01-15T09:30:00Z" },
   "a11y": { "enabled": true },
   "tokens": { "enabled": true, "files": ["src/styles/tokens.css"] }
 }
@@ -262,8 +263,8 @@ The common cases, with fixes, are in
   sure `startCommand` passes `{port}`; raise `startTimeoutMs` for slow boots.
 - **"No UI changes" / `unmatched` files**: check `ui-diff detect` reasons; add aliases that only
   live in bundler config to `detect.aliases`, map shared code with `routes[].files`, or pass `--routes`.
-- **Diffs on identical commits**: mask JavaScript animations, carousels and live data, or freeze the
-  clock with `capture.fixedTime`.
+- **Diffs on identical commits**: the clock, randomness, animations and fonts are frozen by default
+  (`freeze`); mask carousels, tickers and live data with `capture.mask`.
 - **Publish refused**: the repository is public or its visibility is unknown; read the dry run's
   `problems` before posting.
 

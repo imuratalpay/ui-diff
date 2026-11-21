@@ -23,9 +23,9 @@ describe('unsettled pages', () => {
     assert.match(warning, /^base: page did not settle: div\.track \(602×202 px at 40,98\) kept changing between screenshots/);
     assert.match(warning, /timers were paused for the screenshot/);
     assert.match(warning, /"capture": \{ "mask": \["div\.track"\] \}/);
-    assert.match(warning, /capture\.fixedTime/);
+    assert.match(warning, /freeze\.clock/);
     assert.doesNotMatch(unsettledWarning('head', { stable: false, frozeTimers: true, unsettled: [{ box: { x: 0, y: 0, width: 5, height: 5 } }] }), /timers were paused/);
-    assert.match(unsettledWarning('head', { stable: false }), /^head: page did not settle .*capture\.mask.*capture\.fixedTime/);
+    assert.match(unsettledWarning('head', { stable: false }), /^head: page did not settle .*capture\.mask.*freeze\.clock/);
   });
 
   it('tells when every difference is inside areas that moved by themselves', () => {

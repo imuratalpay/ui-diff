@@ -36,7 +36,8 @@ export function hideCss(selectors: string[]): string {
 }
 
 export interface InitOptions {
-  stableRandom: boolean;
+  /** Seed for Math.random and crypto; undefined leaves them random. */
+  seed?: number;
   localStorage?: Record<string, string>;
 }
 
@@ -47,16 +48,16 @@ export interface InitOptions {
 export function initScript(opts: InitOptions): string {
   return `(() => {
   const opts = ${JSON.stringify(opts)};
-  if (opts.stableRandom) {
+  if (typeof opts.seed === 'number') {
     const seeded = (seed) => () => {
       seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
       let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
       t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
-    Math.random = seeded(0x2f6b3a1d);
+    Math.random = seeded(opts.seed);
     if (window.crypto) {
-      const next = seeded(0x1b873593);
+      const next = seeded(opts.seed ^ 0x34ec0f8e);
       try {
         window.crypto.getRandomValues = function (array) {
           const bytes = new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
@@ -295,4 +296,51 @@ export async function scrollThrough(page: Page, maxHeight: number): Promise<void
 
 export async function pageHeight(page: Page): Promise<number> {
   return page.evaluate(() => Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight ?? 0)).catch(() => 0);
+}
+
+export interface FontState {
+  /** Web font families (document.fonts) that finished loading. */
+  loaded: string[];
+  /** Families whose font file failed to load. */
+  failed: string[];
+  /** Families still loading when the capture was taken. */
+  pending: string[];
+}
+
+/** Web fonts by state. Only family names are kept: font URLs can carry hosts and paths. */
+export async function fontState(page: Page): Promise<FontState> {
+  return page
+    .evaluate(() => {
+      const sets = { loaded: new Set<string>(), failed: new Set<string>(), pending: new Set<string>() };
+      for (const face of document.fonts ? Array.from(document.fonts) : []) {
+        const family = face.family.replace(/^["']|["']$/g, '');
+        if (face.status === 'loaded') sets.loaded.add(family);
+        else if (face.status === 'error') sets.failed.add(family);
+        else if (face.status === 'loading') sets.pending.add(family);
+      }
+      return { loaded: [...sets.loaded].sort(), failed: [...sets.failed].sort(), pending: [...sets.pending].sort() };
+    })
+    .catch(() => ({ loaded: [], failed: [], pending: [] }));
+}
+
+/**
+ * Waits for document.fonts.ready and then until no font face is loading on two checks in a row,
+ * so a font requested a moment after the first ready (a FontFace added by a script, text that
+ * renders late) is waited for too. Gives up after timeoutMs; fontState then lists it as pending.
+ */
+export async function settleFonts(page: Page, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let quiet = 0;
+  while (Date.now() < deadline) {
+    const busy = await page
+      .evaluate(async (wait) => {
+        if (!document.fonts) return false;
+        await Promise.race([document.fonts.ready, new Promise((resolve) => setTimeout(resolve, wait))]);
+        return document.fonts.status === 'loading' || Array.from(document.fonts).some((face) => face.status === 'loading');
+      }, Math.max(0, Math.min(1000, deadline - Date.now())))
+      .catch(() => false);
+    quiet = busy ? 0 : quiet + 1;
+    if (quiet >= 2) return;
+    await page.waitForTimeout(100);
+  }
 }
