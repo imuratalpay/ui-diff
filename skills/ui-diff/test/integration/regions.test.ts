@@ -67,6 +67,17 @@ describe('focus and ignore regions in a run', { timeout: 300_000 }, () => {
     assert.match(comment, /focus selector `\.missing` matched nothing on base and head/);
   });
 
+  it('writes a still pair and a blink GIF per changed area, cropped inside the focus', async () => {
+    const outDir = path.join(dir, 'focused');
+    const report = JSON.parse(readFileSync(path.join(outDir, 'report.json'), 'utf8')) as { captures: Array<{ images: { pairs: string[]; blinks: string[]; focus: string[] }; diff: { focusBoxes: Array<{ x: number; y: number; height: number }> } }> };
+    const c = report.captures[0];
+    assert.equal(c.images.pairs.length, c.images.focus.length);
+    assert.equal(c.images.blinks.length, c.images.focus.length);
+    assert.equal(readFileSync(path.join(outDir, c.images.blinks[0])).subarray(0, 3).toString(), 'GIF');
+    // The padding would reach past the section edge at (24, 24); the promo section starts below 190.
+    for (const b of c.diff.focusBoxes) assert.ok(b.x >= 24 && b.y >= 24 && b.y + b.height < 190, `crop stays inside the pricing section: ${JSON.stringify(b)}`);
+  });
+
   it('compares the whole page when no focus selector matches, still ignoring the ignored area', async () => {
     const cfg = loadConfig(repo, repo);
     const { report } = await run({ ...cfg, focus: ['.missing'] }, 'fallback');

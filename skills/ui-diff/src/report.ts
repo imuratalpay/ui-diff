@@ -39,7 +39,11 @@ export interface CaptureResult {
     focusBoxes?: Box[];
   };
   /** Paths relative to the output directory. */
-  images: { base?: string; head?: string; diff?: string; compare?: string; focus: string[] };
+  /**
+   * focus: before | after | diff crops of the changed areas; pairs: the same areas as a still
+   * base | head pair with the changed boxes outlined; blinks: the same areas as a blinking GIF.
+   */
+  images: { base?: string; head?: string; diff?: string; compare?: string; focus: string[]; pairs?: string[]; blinks?: string[] };
   warnings: string[];
   truncated: boolean;
   /** What each side was rendered with; set when both sides were captured. */

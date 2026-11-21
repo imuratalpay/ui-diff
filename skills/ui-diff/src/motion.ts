@@ -204,3 +204,14 @@ export function touchesAnimation(file: string, lines: string[], tokens: string[]
   const named = tokens.map((t) => new RegExp(`(?:^|[^\\w-])${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[^\\w-]|$)`));
   return lines.some((line) => ANIMATION_LINE.test(line) || named.some((re) => re.test(line)));
 }
+
+/** A looping GIF that switches between still frames, each shown for `delayMs`. */
+export function encodeBlinkGif(frames: PNG[], delayMs = 900): Buffer {
+  const gif = GIFEncoder();
+  for (const frame of frames) {
+    const palette = quantize(frame.data, 256);
+    gif.writeFrame(applyPalette(frame.data, palette), frame.width, frame.height, { palette, delay: delayMs, repeat: 0 });
+  }
+  gif.finish();
+  return Buffer.from(gif.bytes());
+}

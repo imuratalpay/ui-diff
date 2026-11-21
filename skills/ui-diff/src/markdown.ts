@@ -179,9 +179,17 @@ function changedSection(report: Report, captures: CaptureResult[], opts: RenderO
     const alt = `${captureLabel(c, themes)}: before, after and highlighted diff`;
     if (c.images.focus.length && (opts.compact ?? 0) < 3) {
       c.images.focus.forEach((f, i) => {
-        out.push(img(opts, opts.link(f), `${alt} (zoomed)`), '');
+        const pair = c.images.pairs?.[i];
+        const blink = c.images.blinks?.[i];
+        // The still pair comes first; the blinking GIF and the diff overlay stay folded away.
+        out.push(pair ? img(opts, opts.link(pair), `${captureLabel(c, themes)}: base and head side by side, changed area ${i + 1} outlined`) : img(opts, opts.link(f), `${alt} (zoomed)`), '');
         const caption = focusCaption(c, i);
         if (caption) out.push(caption, '');
+        if (pair && (opts.compact ?? 0) < 2) {
+          out.push('<details><summary>Blink and diff</summary>', '');
+          if (blink) out.push(img(opts, opts.link(blink), `${captureLabel(c, themes)}: area ${i + 1} switching between base and head`), '');
+          out.push(img(opts, opts.link(f), `${alt} (zoomed)`), '', '</details>', '');
+        }
       });
       if (c.images.compare && (opts.compact ?? 0) < 1) {
         out.push('<details><summary>Full page</summary>', '', img(opts, opts.link(c.images.compare), alt), '', '</details>', '');

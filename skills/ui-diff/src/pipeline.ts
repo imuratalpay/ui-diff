@@ -8,14 +8,14 @@ import { resolveAuth, sanitizeUrl, type ResolvedAuth } from './auth.js';
 import { CaptureSession, ensureBrowser, frozenTime, launchBrowser, resolveBrowser, routeUrl, type CaptureRecord, type CaptureTarget } from './capture.js';
 import { parseVariantFlag, pickThemes, pickViewports, resolveRoute, type ResolvedConfig, type ResolvedRoute, type Step, type ThemeConfig, type VariantSpec, type ViewportConfig } from './config.js';
 import { detectChanges, resolveBaseRef, type DetectResult } from './detect.js';
-import { composeCompare, diffPngs, focusBoxes } from './diff.js';
+import { blinkFrames, clipToFocus, composeCompare, composePair, diffPngs, focusBoxes } from './diff.js';
 import { diffElements, explainRegions, matchElements, verifyChanges } from './elements.js';
 import { changedLines, git, gitCommonDir, mergeBase, revParse, shortSha } from './git.js';
 import { COLORS, composeRow, readPng, resizeToWidth, writePng, type Box } from './image.js';
 import { captureKey, keyId, type CaptureKey } from './key.js';
 import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
-import { distinctFrames, encodeSideBySideGif, isAnimationPackage, motionWarning, recordFrames, stepTokens, touchesAnimation, writeFile, type RawFrame } from './motion.js';
+import { distinctFrames, encodeBlinkGif, encodeSideBySideGif, isAnimationPackage, motionWarning, recordFrames, stepTokens, touchesAnimation, writeFile, type RawFrame } from './motion.js';
 import { realpathIfExists } from './paths.js';
 import { autoSummary, comparability, computeStats, fingerprintDifferences, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureFingerprint, type CaptureResult, type MotionResult, type Report, type BaseCacheInfo, type SideFingerprint, type SideSummary, type Timings, type VariantGroup } from './report.js';
 import { killAllServers, serverLogWarnings } from './server.js';
@@ -878,12 +878,19 @@ function compareCapture(plan: Plan, baseRec: CaptureRecord, headRec: CaptureReco
   const compareFile = path.join(outDir, 'compare', `${plan.id}.png`);
   writePng(compareFile, composeCompare(diff, labels, { maxWidth: cfg.diff.compositeMaxWidth }));
   result.images.compare = rel(outDir, compareFile);
-  const boxes = focusBoxes(diff.regions, diff.width, diff.height, { max: cfg.diff.maxFocusCrops, padding: cfg.diff.focusPadding * scale, scale });
+  // With focus selectors, crops stay inside the focused elements (ignored areas are already painted over).
+  const boxes = focusBoxes(diff.regions, diff.width, diff.height, { max: cfg.diff.maxFocusCrops, padding: cfg.diff.focusPadding * scale, scale }).map((b) => clipToFocus(b, only));
   if (boxes.length) result.diff.focusBoxes = boxes.map((b) => ({ x: css(b.x), y: css(b.y), width: css(b.width), height: css(b.height) }));
   boxes.forEach((box, i) => {
     const file = path.join(outDir, 'compare', `${plan.id}__focus-${i + 1}.png`);
     writePng(file, composeCompare(diff, labels, { box, maxWidth: cfg.diff.compositeMaxWidth, upscaleBelow: 360 * scale }));
     result.images.focus.push(rel(outDir, file));
+    const pairFile = path.join(outDir, 'compare', `${plan.id}__pair-${i + 1}.png`);
+    writePng(pairFile, composePair(diff, box, labels, { highlight: cfg.diff.highlightColor, scale, maxWidth: cfg.diff.compositeMaxWidth, upscaleBelow: 360 * scale }));
+    (result.images.pairs ??= []).push(rel(outDir, pairFile));
+    const blinkFile = path.join(outDir, 'compare', `${plan.id}__blink-${i + 1}.gif`);
+    writeFile(blinkFile, encodeBlinkGif(blinkFrames(diff, box, labels, { highlight: cfg.diff.highlightColor, scale, maxWidth: 800 })));
+    (result.images.blinks ??= []).push(rel(outDir, blinkFile));
   });
   return result;
 }
