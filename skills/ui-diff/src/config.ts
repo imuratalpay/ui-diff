@@ -309,6 +309,15 @@ export const ConfigSchema = z
         { name: 'mobile', width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
       ]),
     themes: z.array(ThemeSchema).min(1).default([{ name: 'light', colorScheme: 'light' }]),
+    browser: z
+      .object({
+        channel: z
+          .string()
+          .optional()
+          .describe('Installed browser to capture with instead of Playwright\'s Chromium, e.g. "chrome" (UI_DIFF_BROWSER_CHANNEL overrides it)'),
+      })
+      .strict()
+      .prefault({}),
     capture: CaptureSchema.prefault({}),
     freeze: FreezeSchema.prefault({}).describe('Inputs frozen before every still capture, the same on both sides'),
     fingerprint: z

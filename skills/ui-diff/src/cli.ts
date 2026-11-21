@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { chromium } from 'playwright';
+import { resolveBrowser } from './capture.js';
 import { CONFIG_FILENAME, loadConfig, type ResolvedConfig } from './config.js';
 import { inferFromPath } from './conventions.js';
 import { detectChanges, detectSummary } from './detect.js';
@@ -520,6 +521,7 @@ async function cmdDoctor(values: Values): Promise<void> {
   const [major, minor] = process.versions.node.split('.').map(Number);
   add('node', major > 20 || (major === 20 && minor >= 10), process.versions.node);
   let root: string | undefined;
+  let configChannel: string | undefined;
   try {
     root = await repoRoot(process.cwd());
     add('git repository', true, root);
@@ -529,6 +531,7 @@ async function cmdDoctor(values: Values): Promise<void> {
   if (root) {
     try {
       const cfg = loadConfig(root, process.cwd(), values.config as string | undefined);
+      configChannel = cfg.browser.channel;
       add('config', true, cfg.file ? `${path.relative(root, cfg.file)}: ${cfg.routes.length} route(s), ${cfg.viewports.length} viewport(s), ${cfg.themes.length} theme(s)` : 'none found (defaults; run `ui-diff init`)');
       add('start command', Boolean(cfg.startCommand || (cfg.preview.base && cfg.preview.head)), cfg.startCommand ?? (cfg.preview.base ? 'preview URLs' : 'missing: set startCommand or preview URLs'));
       const { url, info } = await resolveRemote(root, cfg.publish.remote);
@@ -554,9 +557,10 @@ async function cmdDoctor(values: Values): Promise<void> {
       add('config', false, (error as Error).message);
     }
   }
-  const browser = process.env.UI_DIFF_BROWSER_CHANNEL || process.env.UI_DIFF_CHROMIUM_PATH;
+  const choice = resolveBrowser(configChannel);
+  const custom = choice.executablePath ? `custom: ${choice.executablePath}` : choice.channel ? `channel: ${choice.channel} (installed browser, nothing to download)` : undefined;
   const installed = existsSync(chromium.executablePath());
-  add('browser', Boolean(browser) || installed, browser ? `custom: ${browser}` : installed ? chromium.executablePath() : 'Playwright Chromium not installed yet (downloaded automatically on the first run)', !browser);
+  add('browser', Boolean(custom) || installed, custom ?? (installed ? chromium.executablePath() : 'Playwright Chromium not installed yet (downloaded automatically on the first run)'), !custom);
   for (const c of checks) log.info(doctorLine(c));
   print({ ok: doctorOk(checks), checks });
 }

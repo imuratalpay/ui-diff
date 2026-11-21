@@ -86,7 +86,9 @@ Requirements: macOS or Linux (on Windows, WSL2), git and Node.js 20.10+. The Git
 (`gh auth login`) is only needed to publish (`ui-diff publish` posts the comment with it) and for
 `--pr <number>`; local runs work without it. The first run installs the skill's npm dependencies
 and builds it (about a minute); the first capture downloads Playwright's Chromium (~150 MB) into
-`~/.cache/ms-playwright`. To use an installed Chrome instead, set `UI_DIFF_BROWSER_CHANNEL=chrome`.
+`~/.cache/ms-playwright`. To use an installed Chrome instead, set `UI_DIFF_BROWSER_CHANNEL=chrome`
+or `"browser": { "channel": "chrome" }` in the config; the example CI workflow does this with the
+runner's preinstalled Chrome.
 
 ```bash
 git clone https://github.com/imuratalpay/ui-diff.git ~/src/ui-diff

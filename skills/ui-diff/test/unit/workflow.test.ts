@@ -119,6 +119,19 @@ describe('example CI workflow: preflight', () => {
   });
 });
 
+describe('example CI workflow: browser', () => {
+  it('captures with the runner\'s Chrome by default and caches Playwright\'s Chromium when that is used instead', () => {
+    assert.match(workflow, /\n {2}UI_DIFF_BROWSER_CHANNEL: chrome\n/);
+    const capture = job('ui-diff');
+    assert.match(capture, /- uses: actions\/cache@v4\n\s+id: playwright-cache\n\s+if: env\.UI_DIFF_BROWSER_CHANNEL == ''\n\s+with:\n\s+path: ~\/\.cache\/ms-playwright\n\s+key: playwright-\$\{\{ runner\.os \}\}-\$\{\{ steps\.playwright\.outputs\.version \}\}/);
+    assert.match(capture, /- name: Install Chromium\n\s+if: env\.UI_DIFF_BROWSER_CHANNEL == '' && steps\.playwright-cache\.outputs\.cache-hit != 'true'\n\s+run: npx --prefix "\$SKILL" playwright install --with-deps chromium/);
+    for (const line of capture.split('\n').filter((l) => /playwright install/.test(l))) {
+      const step = capture.slice(0, capture.indexOf(line));
+      assert.match(step.slice(step.lastIndexOf('- name:')), /if: env\.UI_DIFF_BROWSER_CHANNEL == ''/, `${line.trim()} runs only for Chromium`);
+    }
+  });
+});
+
 describe('example CI workflow', () => {
   it('installs app dependencies with the package manager of the lockfile', () => {
     assert.deepEqual(detect('pnpm-lock.yaml'), { name: 'pnpm', install: 'pnpm install --frozen-lockfile' });

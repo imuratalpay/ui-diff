@@ -728,6 +728,17 @@
         "additionalProperties": false
       }
     },
+    "browser": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "channel": {
+          "description": "Installed browser to capture with instead of Playwright's Chromium, e.g. \"chrome\" (UI_DIFF_BROWSER_CHANNEL overrides it)",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
     "capture": {
       "default": {},
       "type": "object",

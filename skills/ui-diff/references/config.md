@@ -63,6 +63,13 @@ is read as `/` too. Globs support `**`, `*`, `?`, `{a,b}`,
 | `env` | `{}` | Extra environment variables for install/build/start. |
 | `copyFiles` | `.env`, `.env.local`, `.env.development.local` | Untracked files copied from your checkout into each worktree when present. |
 
+**Browser.** Captures run in Playwright's Chromium, downloaded on first use. To use an installed
+browser instead (on GitHub's Ubuntu runners Google Chrome is preinstalled, so nothing is
+downloaded), set `"browser": { "channel": "chrome" }` or `UI_DIFF_BROWSER_CHANNEL=chrome` (the
+variable wins); `UI_DIFF_CHROMIUM_PATH` points at any Chromium build. One browser is launched per
+run, so base and head always share it, and the capture settings record which one (`chromium`,
+the channel name, or `custom executable`; never the path).
+
 Worktrees live in the system temp directory and are removed afterwards (`--keep-worktrees` keeps
 them). Each server runs in its own process group; only those processes are stopped.
 
@@ -166,7 +173,8 @@ they do not push the rest of the page around.
 ## Fingerprint
 
 Each capture records what each side was rendered with, measured in the page: the commit, viewport
-size, `devicePixelRatio` and `isMobile`, browser name, version and user agent, web fonts loaded,
+size, `devicePixelRatio` and `isMobile`, the browser (`chromium`, a channel such as `chrome`, or
+`custom executable`), its version and user agent, web fonts loaded,
 failed or still loading, the freeze settings used (clock instant, seed, animations, font wait),
 reduced motion, color scheme, locale and timezone, and the test data label. It never records
 paths, host names, user names or environment variable values (font URLs are dropped; only family

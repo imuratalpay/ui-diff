@@ -28,6 +28,10 @@ concurrency:
 env:
   SKILL: .claude/skills/ui-diff
   GH_TOKEN: ${{ github.token }}
+  # Capture with the Google Chrome preinstalled on GitHub's Ubuntu runners: nothing to download.
+  # Set it to '' to use Playwright's Chromium instead; it is downloaded once and then cached.
+  # Base and head always run in the same browser, and the comment's capture settings name it.
+  UI_DIFF_BROWSER_CHANNEL: chrome
 
 jobs:
   # Decides whether anything needs capturing. Needs only git history and ui-diff's own
@@ -116,10 +120,29 @@ jobs:
       - name: Install app dependencies
         run: ${{ steps.pm.outputs.install }}
 
-      - name: Install ui-diff and Chromium
-        run: |
-          npm --prefix "$SKILL" ci --no-audit --no-fund
-          npx --prefix "$SKILL" playwright install --with-deps chromium
+      - name: Install ui-diff
+        run: npm --prefix "$SKILL" ci --no-audit --no-fund
+
+      # Only when UI_DIFF_BROWSER_CHANNEL is '': Playwright's Chromium, cached per Playwright version.
+      - name: Playwright version
+        id: playwright
+        if: env.UI_DIFF_BROWSER_CHANNEL == ''
+        run: echo "version=$(node -p "require('./$SKILL/node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        id: playwright-cache
+        if: env.UI_DIFF_BROWSER_CHANNEL == ''
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Install Chromium
+        if: env.UI_DIFF_BROWSER_CHANNEL == '' && steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx --prefix "$SKILL" playwright install --with-deps chromium
+
+      - name: Install Chromium's system libraries
+        if: env.UI_DIFF_BROWSER_CHANNEL == '' && steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx --prefix "$SKILL" playwright install-deps chromium
 
       - name: Capture and diff
         run: >

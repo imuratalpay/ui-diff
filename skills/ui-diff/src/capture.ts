@@ -177,9 +177,28 @@ const require = createRequire(import.meta.url);
 const BROWSER_HINT =
   'Run `npx --prefix <skill folder> playwright install chromium` once you are online (behind a proxy set HTTPS_PROXY, or PLAYWRIGHT_DOWNLOAD_HOST for a mirror), or use an installed Chrome with UI_DIFF_BROWSER_CHANNEL=chrome.';
 
-/** Installs Playwright's Chromium on first use unless a system browser channel is configured. */
-export async function ensureBrowser(): Promise<void> {
-  if (process.env.UI_DIFF_BROWSER_CHANNEL || process.env.UI_DIFF_CHROMIUM_PATH) return;
+/** Which browser captures run in: a browser channel (an installed Chrome), a custom executable, or Playwright's Chromium. */
+export interface BrowserChoice {
+  channel?: string;
+  executablePath?: string;
+  /** Recorded in the fingerprint: the channel name, "chromium" (bundled) or "custom executable" (the path is never recorded). */
+  label: string;
+}
+
+/**
+ * UI_DIFF_CHROMIUM_PATH wins, then UI_DIFF_BROWSER_CHANNEL, then config browser.channel, then the
+ * Chromium Playwright downloads. Resolved once per run, so base and head always share the browser.
+ */
+export function resolveBrowser(configChannel?: string, env: NodeJS.ProcessEnv = process.env): BrowserChoice {
+  if (env.UI_DIFF_CHROMIUM_PATH) return { executablePath: env.UI_DIFF_CHROMIUM_PATH, label: 'custom executable' };
+  const channel = env.UI_DIFF_BROWSER_CHANNEL || configChannel;
+  if (channel) return { channel, label: channel };
+  return { label: 'chromium' };
+}
+
+/** Installs Playwright's Chromium on first use unless an installed browser was chosen. */
+export async function ensureBrowser(choice: BrowserChoice = resolveBrowser()): Promise<void> {
+  if (choice.channel || choice.executablePath) return;
   if (existsSync(chromium.executablePath())) return;
   log.step('installing Playwright Chromium (first run only)');
   const cli = path.join(path.dirname(require.resolve('playwright/package.json')), 'cli.js');
@@ -191,19 +210,21 @@ export async function ensureBrowser(): Promise<void> {
   }
 }
 
-export async function launchBrowser(): Promise<Browser> {
-  await ensureBrowser();
+export async function launchBrowser(choice: BrowserChoice = resolveBrowser()): Promise<Browser> {
+  await ensureBrowser(choice);
   try {
     return await chromium.launch({
       headless: true,
-      channel: process.env.UI_DIFF_BROWSER_CHANNEL || undefined,
-      executablePath: process.env.UI_DIFF_CHROMIUM_PATH || undefined,
+      channel: choice.channel,
+      executablePath: choice.executablePath,
       args: ['--font-render-hinting=none', '--disable-lcd-text', '--force-color-profile=srgb', '--hide-scrollbars', '--disable-skia-runtime-opts'],
     });
   } catch (error) {
     const lines = (error as Error).message.split('\n').filter((l) => l.trim() && !/^\s*at /.test(l));
-    throw new UiDiffError(`Could not start Chromium: ${lines.slice(0, 6).join(' ').replace(/\s+/g, ' ').slice(0, 600)}`, {
-      hint: 'On Linux install the system libraries with `npx --prefix <skill folder> playwright install --with-deps chromium`, or set UI_DIFF_BROWSER_CHANNEL=chrome to use an installed Chrome.',
+    throw new UiDiffError(`Could not start ${choice.label === 'chromium' ? 'Chromium' : choice.label}: ${lines.slice(0, 6).join(' ').replace(/\s+/g, ' ').slice(0, 600)}`, {
+      hint: choice.channel
+        ? `Install that browser (channel "${choice.channel}"), or unset UI_DIFF_BROWSER_CHANNEL / browser.channel to use Playwright's Chromium.`
+        : 'On Linux install the system libraries with `npx --prefix <skill folder> playwright install --with-deps chromium`, or set UI_DIFF_BROWSER_CHANNEL=chrome to use an installed Chrome.',
     });
   }
 }
@@ -213,6 +234,8 @@ export interface SessionOptions {
   auth?: ResolvedAuth;
   /** Instant used when freeze.time is "run-start". */
   runStart: Date;
+  /** Fingerprint name of the browser (BrowserChoice.label); defaults to "chromium". */
+  browserLabel?: string;
 }
 
 /** The instant Date is frozen at for still captures, or undefined when freeze.clock is off. */
@@ -260,7 +283,7 @@ export class CaptureSession {
     const clock = frozenTime(cfg, this.opts.runStart);
     return {
       viewport: { width: measured.width, height: measured.height, deviceScaleFactor: measured.deviceScaleFactor, isMobile: contextOptions(target.viewport, target.theme, cfg).isMobile ?? false },
-      browser: { name: this.browser.browserType().name(), version: this.browser.version(), userAgent: measured.userAgent },
+      browser: { name: this.opts.browserLabel ?? 'chromium', version: this.browser.version(), userAgent: measured.userAgent },
       fonts,
       freeze: { clock: clock ? clock.toISOString() : null, seed: cfg.freeze.random ? cfg.freeze.seed : null, animations: cfg.freeze.animations, fonts: cfg.freeze.fonts },
       media: { reducedMotion: measured.reducedMotion, colorScheme: measured.colorScheme, locale: measured.locale, timezone: measured.timezone },

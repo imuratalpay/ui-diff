@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { Browser } from 'playwright';
 import { diffFocusOrder, diffViolations, type A11yIssue } from './a11y.js';
 import { resolveAuth, sanitizeUrl, type ResolvedAuth } from './auth.js';
-import { CaptureSession, ensureBrowser, launchBrowser, routeUrl, type CaptureRecord, type CaptureTarget } from './capture.js';
+import { CaptureSession, ensureBrowser, launchBrowser, resolveBrowser, routeUrl, type CaptureRecord, type CaptureTarget } from './capture.js';
 import { parseVariantFlag, pickThemes, pickViewports, resolveRoute, type ResolvedConfig, type ResolvedRoute, type Step, type ThemeConfig, type VariantSpec, type ViewportConfig } from './config.js';
 import { detectChanges, resolveBaseRef, type DetectResult } from './detect.js';
 import { composeCompare, diffPngs, focusBoxes } from './diff.js';
@@ -445,7 +445,8 @@ async function emptyReport(cfg: ResolvedConfig, prepared: Prepared, detected: De
 /** Worktrees, installs and dev servers (or preview URLs) for both sides, then the browser. */
 async function bootStage(sides: SideManager, detected: Detected, prepared: Prepared, ctx: { cfg: ResolvedConfig; runStart: Date }): Promise<Booted> {
   const ensureStart = performance.now();
-  await ensureBrowser();
+  const choice = resolveBrowser(ctx.cfg.browser.channel);
+  await ensureBrowser(choice);
   let browserMs = since(ensureStart);
   const prepareStart = performance.now();
   const results = await Promise.allSettled([sides.prepare(detected.baseRequest), sides.prepare(detected.headRequest)]);
@@ -455,9 +456,10 @@ async function bootStage(sides: SideManager, detected: Detected, prepared: Prepa
   const [base, head] = results.map((p) => (p as PromiseFulfilledResult<Side>).value);
   log.info(`base: ${base.label} (${base.mode}) · head: ${head.label} (${head.mode})`);
   const launchStart = performance.now();
-  const browser = await launchBrowser();
+  const browser = await launchBrowser(choice);
   browserMs += since(launchStart);
-  return { base, head, browser, session: new CaptureSession(browser, { cfg: ctx.cfg, auth: prepared.auth, runStart: ctx.runStart }), prepareMs, browserMs };
+  log.info(`browser: ${choice.label} ${browser.version()}`);
+  return { base, head, browser, session: new CaptureSession(browser, { cfg: ctx.cfg, auth: prepared.auth, runStart: ctx.runStart, browserLabel: choice.label }), prepareMs, browserMs };
 }
 
 /** Screenshots (and style, axe and focus-order data) of every plan on both sides, keyed `<side>:<id>`. */
