@@ -11,7 +11,7 @@ import type { Box } from './image.js';
 import { log, redact, UiDiffError } from './log.js';
 import type { SideName } from './sides.js';
 import { runSteps } from './steps.js';
-import type { StyleSnapshot } from './tokens.js';
+import { collectStyles } from './styles.js';
 import { changedRegions, type UnsettledRegion } from './unsettled.js';
 
 export interface CaptureTarget {
@@ -46,6 +46,8 @@ export interface CaptureRecord {
   /** The page clock was paused for the final screenshots because something kept moving. */
   frozeTimers?: boolean;
   stylesFile?: string;
+  /** The style snapshot hit capture.styleMaxElements. */
+  stylesCapped?: boolean;
   axe?: AxeViolation[];
   focusOrder?: FocusStop[];
   /** Route actions skipped because no element matched them on this side. */
@@ -349,23 +351,11 @@ export class CaptureSession {
       if (shot.unsettled) record.unsettled = shot.unsettled;
       if (shot.frozeTimers) record.frozeTimers = true;
       if (target.styles) {
-        const snapshot = await page.evaluate(
-          ({ max, ignore, extra }) => {
-            const helpers = (window as unknown as { __uiDiff: { snapshotStyles(m: number, i: string[]): unknown[]; normalizeColors(l: string[]): Record<string, unknown> } }).__uiDiff;
-            const elements = helpers.snapshotStyles(max, ignore) as Array<{ styles: { color: string; backgroundColor: string; borderColor: string[] } }>;
-            const colors = new Set<string>(extra);
-            for (const el of elements) {
-              colors.add(el.styles.color);
-              colors.add(el.styles.backgroundColor);
-              for (const c of el.styles.borderColor) colors.add(c);
-            }
-            return { elements, colors: helpers.normalizeColors([...colors]) };
-          },
-          { max: cfg.tokens.maxElements, ignore: cfg.tokens.ignoreSelectors, extra: target.styles.extraColors },
-        );
+        const { snapshot, capped } = await collectStyles(page, { maxElements: cfg.capture.styleMaxElements, ignore: cfg.tokens.ignoreSelectors, extraColors: target.styles.extraColors });
         mkdirSync(path.dirname(target.styles.file), { recursive: true });
-        writeFileSync(target.styles.file, JSON.stringify(snapshot as StyleSnapshot));
+        writeFileSync(target.styles.file, JSON.stringify(snapshot));
         record.stylesFile = target.styles.file;
+        if (capped) record.stylesCapped = true;
       }
       if (target.a11y) record.axe = await runAxe(page, { tags: cfg.a11y.tags, rules: cfg.a11y.rules });
       if (target.focusOrder) record.focusOrder = await collectFocusOrder(page, cfg.a11y.maxTabStops);

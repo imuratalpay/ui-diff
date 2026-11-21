@@ -48,6 +48,8 @@ export interface StyledElement {
     fontWeight: string;
     fontFamily: string;
     lineHeight: string;
+    /** Absent in snapshots written before it was recorded. */
+    letterSpacing?: string;
   };
 }
 

@@ -102,6 +102,12 @@ const CaptureSchema = z
     networkIdleTimeoutMs: z.number().int().min(0).default(3000),
     locale: z.string().default('en-US'),
     timezoneId: z.string().default('UTC'),
+    styleMaxElements: z
+      .number()
+      .int()
+      .min(10)
+      .default(2500)
+      .describe('Most visible elements whose computed styles are recorded per capture (token audit); a warning says when a page has more'),
   })
   .strict();
 
@@ -186,7 +192,7 @@ const TokensSchema = z
       .default({})
       .describe('Map token names to categories when their names do not say it, e.g. { "spacing": ["--s-*"], "font-size": ["--fs-*"] }'),
     ignoreSelectors: z.array(z.string()).default([]),
-    maxElements: z.number().int().min(10).default(2500),
+    maxElements: z.number().int().min(10).optional().describe('Deprecated: use capture.styleMaxElements (still honoured when that is not set)'),
     maxFindings: z.number().int().min(1).default(40),
   })
   .strict();
@@ -435,6 +441,8 @@ export function parseConfig(raw: unknown, opts: { file?: string; repoRoot: strin
     throw new UiDiffError(`Invalid configuration:\n${formatZodError(result.error, label)}`);
   }
   const parsed = result.data;
+  const explicitCap = (raw as { capture?: { styleMaxElements?: unknown } } | null)?.capture?.styleMaxElements !== undefined;
+  if (!explicitCap && parsed.tokens.maxElements !== undefined) parsed.capture.styleMaxElements = parsed.tokens.maxElements;
   parsed.cwd = toSlashes(parsed.cwd);
   parsed.copyFiles = parsed.copyFiles.map(toSlashes);
   parsed.tokens.files = parsed.tokens.files.map(toSlashes);

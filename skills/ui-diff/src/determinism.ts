@@ -83,12 +83,16 @@ export function initScript(opts: InitOptions): string {
 const PAGE_HELPERS = String.raw`
   const IDENT = /^[A-Za-z_][\w-]*$/;
   const HASHY = /^(?:css|sc|jsx|emotion|svelte|astro)-[\w-]+$|__[A-Za-z0-9_-]{5,}$/;
-  function unique(selector) {
-    try { return document.querySelectorAll(selector).length === 1; } catch (e) { return false; }
+  function rootOf(el) {
+    const root = el.getRootNode();
+    return root instanceof ShadowRoot ? root : document;
   }
-  function cssPath(el) {
-    if (!(el instanceof Element)) return '';
-    if (el.id && IDENT.test(el.id) && unique('#' + el.id)) return '#' + el.id;
+  function unique(root, selector) {
+    try { return root.querySelectorAll(selector).length === 1; } catch (e) { return false; }
+  }
+  // Selector of el within its own tree (the document or one shadow root).
+  function localPath(el, root) {
+    if (el.id && IDENT.test(el.id) && unique(root, '#' + el.id)) return '#' + el.id;
     for (const attr of ['data-testid', 'data-test', 'data-qa', 'data-cy']) {
       const v = el.getAttribute(attr);
       if (v) return '[' + attr + '="' + v.replace(/"/g, '\\"') + '"]';
@@ -101,9 +105,10 @@ const PAGE_HELPERS = String.raw`
       const classes = Array.from(cur.classList).filter((c) => IDENT.test(c) && !HASHY.test(c)).slice(0, 2);
       if (classes.length) part += '.' + classes.join('.');
       const parent = cur.parentElement;
-      if (parent) {
-        const same = Array.from(parent.children).filter((c) => c.tagName === cur.tagName && (classes.length === 0 || classes.every((k) => c.classList.contains(k))));
-        if (same.length > 1) part += ':nth-of-type(' + (Array.from(parent.children).filter((c) => c.tagName === cur.tagName).indexOf(cur) + 1) + ')';
+      const siblings = parent ? parent.children : cur.parentNode === root && root !== document ? root.children : null;
+      if (siblings) {
+        const same = Array.from(siblings).filter((c) => c.tagName === cur.tagName && (classes.length === 0 || classes.every((k) => c.classList.contains(k))));
+        if (same.length > 1) part += ':nth-of-type(' + (Array.from(siblings).filter((c) => c.tagName === cur.tagName).indexOf(cur) + 1) + ')';
       }
       parts.unshift(part);
       if (cur === document.body) break;
@@ -111,9 +116,24 @@ const PAGE_HELPERS = String.raw`
     }
     for (let k = 1; k < Math.min(parts.length, 4); k++) {
       const candidate = parts.slice(-k).join(' > ');
-      if (unique(candidate)) return candidate;
+      if (unique(root, candidate)) return candidate;
     }
     return parts.join(' > ');
+  }
+  // Inside a shadow root the selector is chained to its host with Playwright's ">>", so masks and
+  // actions built from it resolve to this element.
+  function cssPath(el) {
+    if (!(el instanceof Element)) return '';
+    const root = rootOf(el);
+    const local = localPath(el, root);
+    return root === document ? local : cssPath(root.host) + ' >> ' + local;
+  }
+  function allElements(root, out) {
+    for (const el of root.querySelectorAll('*')) {
+      out.push(el);
+      if (el.shadowRoot) allElements(el.shadowRoot, out);
+    }
+    return out;
   }
   function autoMarginX(el, cs) {
     const parent = el.parentElement;
@@ -159,16 +179,18 @@ const PAGE_HELPERS = String.raw`
     if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) === 0) return false;
     return true;
   }
+  // Visible elements in document order, including open shadow roots; capped says maxElements cut the list short.
   function snapshotStyles(maxElements, ignore) {
     const out = [];
-    const all = document.body ? document.body.querySelectorAll('*') : [];
+    let capped = false;
+    const all = document.body ? allElements(document.body, []) : [];
     for (const el of all) {
-      if (out.length >= maxElements) break;
       if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'BR', 'HEAD', 'META', 'LINK'].includes(el.tagName)) continue;
       if (ignore.length && ignore.some((s) => { try { return el.closest(s); } catch (e) { return false; } })) continue;
       const cs = getComputedStyle(el);
       const r = el.getBoundingClientRect();
       if (!visible(el, cs, r)) continue;
+      if (out.length >= maxElements) { capped = true; break; }
       const borderColor = [];
       for (const side of ['Top', 'Right', 'Bottom', 'Left']) {
         if (cs['border' + side + 'Style'] !== 'none' && parseFloat(cs['border' + side + 'Width']) > 0) borderColor.push(cs['border' + side + 'Color']);
@@ -190,10 +212,11 @@ const PAGE_HELPERS = String.raw`
           fontWeight: cs.fontWeight,
           fontFamily: cs.fontFamily,
           lineHeight: cs.lineHeight,
+          letterSpacing: cs.letterSpacing,
         },
       });
     }
-    return out;
+    return { elements: out, capped };
   }
   function normalizeColors(list) {
     const canvas = document.createElement('canvas');

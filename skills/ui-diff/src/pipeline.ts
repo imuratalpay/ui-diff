@@ -16,6 +16,7 @@ import { autoSummary, computeStats, notCheckedReason, pct, truncationWarning, ty
 import { killAllServers, serverLogWarnings } from './server.js';
 import { SideManager, type Side, type SideRequest } from './sides.js';
 import { describeStep, runSteps } from './steps.js';
+import { styleCapWarning } from './styles.js';
 import { aggregateFindings, auditSnapshot, buildTokenSet, detectTokenFiles, findingKeys, hasCategory, loadTokenFiles, tokenColorStrings, type StyleSnapshot, type TokenSet } from './tokens.js';
 import { onlyInUnsettled, unsettledWarning } from './unsettled.js';
 import { VERSION } from './version.js';
@@ -38,6 +39,8 @@ export interface RunOptions {
   tokens?: string[];
   a11y?: boolean;
   keepWorktrees?: boolean;
+  /** Internal: record computed styles of every capture even without the token audit (which always records them). */
+  collectStyles?: boolean;
 }
 
 export interface RunOutcome {
@@ -329,6 +332,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
     }
 
     const records = new Map<string, CaptureRecord>();
+    const stylesOn = Boolean(tokenSet) || Boolean(opts.collectStyles);
     const extraColors = tokenSet ? tokenColorStrings(tokenSet) : [];
     let n = 0;
     for (const plan of plans) {
@@ -342,7 +346,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
           theme: plan.theme,
           url: routeUrl(side.url, plan.route.path, plan.theme.query),
           file: path.join(outDir, 'captures', side.name, `${plan.id}.png`),
-          styles: tokenSet ? { file: path.join(outDir, 'styles', side.name, `${plan.id}.json`), extraColors } : undefined,
+          styles: stylesOn ? { file: path.join(outDir, 'styles', side.name, `${plan.id}.json`), extraColors } : undefined,
           a11y: plan.a11y,
           focusOrder: plan.focus,
         };
@@ -374,6 +378,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       const h = records.get(`head:${c.id}`);
       for (const [label, r] of [['base', b], ['head', h]] as const) {
         for (const action of r?.skippedActions ?? []) c.warnings.push(skippedActionWarning(label, action));
+        if (r?.stylesCapped) c.warnings.push(styleCapWarning(label, cfg.capture.styleMaxElements));
         if (r?.pageErrors.length) c.warnings.push(`${label}: uncaught page error: ${r.pageErrors[0]}`);
         if (r && r.ok && (!r.stable || r.unsettled)) c.warnings.push(unsettledWarning(label, r));
       }

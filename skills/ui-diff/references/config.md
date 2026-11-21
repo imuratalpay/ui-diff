@@ -123,6 +123,7 @@ the page loads, e.g. `{ "theme": "dark" }` for next-themes).
 | `waitUntil` | `"load"` | Plus a bounded wait for network idle (`networkIdleTimeoutMs`, 3000). |
 | `locale` / `timezoneId` | `en-US` / `UTC` | |
 | `timeoutMs` | `30000` | Per navigation/step. |
+| `styleMaxElements` | `2500` | Most visible elements whose computed styles are recorded per capture (used by the token audit). A capture with more gets a warning. Replaces `tokens.maxElements`, which is still honoured when this is not set. |
 
 Service workers are blocked and CSP is bypassed in the capture browser so cached or blocked
 assets do not differ between sides.

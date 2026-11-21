@@ -90,7 +90,10 @@ only elements that intersect the changed areas. Each finding lists selectors, th
 (when one is close) and whether base already used the value: new values are reported, existing
 ones are collapsed. Categories without any tokens are skipped. Options: `properties`,
 `colorTolerance` (per channel, 2), `pxTolerance` (0.5), `remBase` (16), `allow`, `categories`, `ignoreSelectors`,
-`maxElements`, `maxFindings`.
+`maxFindings`. Styles are recorded for at most `capture.styleMaxElements` (2500) visible elements per
+capture, in document order and including open shadow roots; a capture that has more gets a warning,
+because elements past the cap are not audited. The older `tokens.maxElements` still works when
+`capture.styleMaxElements` is not set.
 
 ## Accessibility delta
 

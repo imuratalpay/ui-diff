@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -90,5 +90,20 @@ describe('device scale comes from the page', { timeout: 300_000 }, () => {
       assert.equal(crop.width, want.cssWidth, `${viewport}: focus crop spans the full-width banner (CSS px)`);
       assert.equal(crop.height, 220, `${viewport}: focus crop height (CSS px)`);
     }
+  });
+
+  it('records styles without the token audit when asked to, and warns when the element cap is hit', async () => {
+    const loaded = loadConfig(repo, repo);
+    const cfg = { ...loaded, viewports: loaded.viewports.filter((v) => v.name === 'desktop'), capture: { ...loaded.capture, styleMaxElements: 10 } };
+    const outDir = path.join(dir, 'styles-out');
+    const { report } = await runPipeline({ cfg, outDir, base: baseSha, head: headSha, allRoutes: true, collectStyles: true });
+    assert.equal(report.tokens, undefined, 'no token audit');
+    const capture = report.captures[0];
+    const snapshot = JSON.parse(readFileSync(path.join(outDir, 'styles', 'head', `${capture.id}.json`), 'utf8')) as { elements: unknown[] };
+    assert.equal(snapshot.elements.length, 10);
+    for (const side of ['base', 'head']) assert.ok(capture.warnings.some((w) => w.startsWith(`${side}: style snapshot stopped at 10 elements`)), JSON.stringify(capture.warnings));
+    const plain = await runPipeline({ cfg: loaded, outDir: path.join(dir, 'no-styles'), base: baseSha, head: headSha, allRoutes: true });
+    assert.equal(existsSync(path.join(dir, 'no-styles', 'styles')), false, 'off by default');
+    assert.equal(plain.report.stats.errors, 0);
   });
 });

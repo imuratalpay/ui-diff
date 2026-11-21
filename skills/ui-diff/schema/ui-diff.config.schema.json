@@ -771,6 +771,13 @@
         "timezoneId": {
           "default": "UTC",
           "type": "string"
+        },
+        "styleMaxElements": {
+          "default": 2500,
+          "description": "Most visible elements whose computed styles are recorded per capture (token audit); a warning says when a page has more",
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 9007199254740991
         }
       },
       "additionalProperties": false
@@ -1212,7 +1219,7 @@
           }
         },
         "maxElements": {
-          "default": 2500,
+          "description": "Deprecated: use capture.styleMaxElements (still honoured when that is not set)",
           "type": "integer",
           "minimum": 10,
           "maximum": 9007199254740991
