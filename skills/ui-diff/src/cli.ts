@@ -310,7 +310,7 @@ function loadReport(outDir: string, summaryOption: unknown): { report: Report; s
   if (failure) log.warn(`the last run failed (${failure.failedAt}: ${failure.error.split('\n')[0]}); this report is from an earlier run (${report.createdAt}). Rerun \`ui-diff run\` before publishing.`);
   const summaryFile = (summaryOption as string | undefined) ?? (existsSync(path.join(outDir, 'summary.md')) ? path.join(outDir, 'summary.md') : undefined);
   if (!summaryFile) {
-    log.info('no summary.md found; using the automatic summary');
+    log.info('no summary.md found, so the comment has no written summary: it starts with the verdict and the measured changes');
     return { report };
   }
   if (!existsSync(summaryFile)) throw new UiDiffError(`Summary file not found: ${summaryFile}`);

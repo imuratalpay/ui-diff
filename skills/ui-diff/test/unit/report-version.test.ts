@@ -75,8 +75,9 @@ describe('render and publish --dry-run with old and new reports', () => {
   ] as const) {
     it(`renders and dry-runs a ${label} report`, () => {
       const repo = repoWith(label.split(' ').slice(0, 2).join('-'), report);
-      const rendered = cli(repo, 'render', '--quiet');
+      const rendered = cli(repo, 'render');
       assert.equal(rendered.status, 0, rendered.stderr);
+      assert.match(rendered.stderr, /no summary\.md found, so the comment has no written summary: it starts with the verdict and the measured changes/);
       const body = readFileSync(path.join(repo, '.ui-diff', 'comment.preview.md'), 'utf8');
       assert.match(body, /### UI diff — Visual changes on 1 route\n/);
       const dry = cli(repo, 'publish', '--pr', '3', '--dry-run', '--quiet');
