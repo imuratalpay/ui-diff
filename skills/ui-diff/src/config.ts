@@ -329,6 +329,7 @@ export const ConfigSchema = z
       .object({
         enabled: z.boolean().default(true).describe('Record the element map of every capture and describe changes as measured style changes'),
         maxChanges: z.number().int().min(1).default(50).describe('Most element changes kept per capture in report.json'),
+        minConfidence: z.enum(['high', 'medium', 'low']).default('medium').describe('Changes of elements matched with less confidence are listed as unverified'),
       })
       .strict()
       .prefault({}),

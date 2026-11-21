@@ -224,6 +224,8 @@ export interface Report {
   baseCache?: BaseCacheInfo;
   /** Focus and ignore selectors used by any captured route. */
   regions?: { focus: string[]; ignore: string[] };
+  /** Set when base and head were captured differently on some capture: what differed, and where. */
+  notComparable?: Array<{ key: string; captures: string[] }>;
   timings?: Timings;
   warnings: string[];
   stats: { captures: number; changed: number; unchanged: number; added: number; removed: number; errors: number };
@@ -286,6 +288,22 @@ export function fingerprintDifferences(base: SideFingerprint, head: SideFingerpr
     if (b !== h) out.push(`${label}: base ${b} · head ${h}`);
   }
   return out;
+}
+
+/**
+ * Fingerprint keys (fonts, browser, viewport, seed, clock...) that differed between base and head,
+ * with the captures they differed on. A run with any is not a clean comparison.
+ */
+export function comparability(captures: CaptureResult[]): Pick<Report, 'notComparable'> {
+  const byKey = new Map<string, string[]>();
+  for (const c of captures) {
+    for (const d of c.fingerprint?.differences ?? []) {
+      const key = d.slice(0, d.indexOf(':'));
+      const where = `${c.route.path} ${c.viewport}/${c.theme}`;
+      byKey.set(key, [...new Set([...(byKey.get(key) ?? []), where])]);
+    }
+  }
+  return byKey.size ? { notComparable: [...byKey].map(([key, where]) => ({ key, captures: where })) } : {};
 }
 
 export function computeStats(captures: CaptureResult[]): Report['stats'] {
@@ -379,7 +397,7 @@ export function notCheckedNotice(reason: string): string {
 function measuredSummary(items: CaptureResult[]): string {
   const withDiff = items.filter((c) => c.styleDiff);
   if (withDiff.length === 0) return '';
-  const all = withDiff.flatMap((c) => c.styleDiff!.changes).sort((a, b) => b.magnitude - a.magnitude);
+  const all = withDiff.flatMap((c) => c.styleDiff!.changes.filter((x) => x.verified !== false)).sort((a, b) => b.magnitude - a.magnitude);
   if (all.length === 0) return ' No measured style, text or size change.';
   const top = all[0];
   const what = top.kind === 'changed' ? top.changes.map((p) => (p.property === 'position' ? p.after : `${p.property} ${p.before} → ${p.after}`)).join(', ') : top.kind;
@@ -395,6 +413,8 @@ export function autoSummary(report: Report): string {
   const notChecked = notCheckedReason(report);
   if (notChecked) {
     lines.push(notCheckedNotice(notChecked));
+  } else if (changed.length === 0 && s.errors === 0 && report.notComparable) {
+    lines.push(`No visual changes found across ${s.captures} capture${s.captures === 1 ? '' : 's'}, but base and head were captured differently (${report.notComparable.map((n) => n.key).join(', ')}), so this is not a clean result.`);
   } else if (changed.length === 0 && s.errors === 0) {
     lines.push(`No visual changes across ${s.captures} capture${s.captures === 1 ? '' : 's'} (${report.routes.length} route${report.routes.length === 1 ? '' : 's'}).`);
   } else {

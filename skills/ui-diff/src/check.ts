@@ -2,7 +2,7 @@ import path from 'node:path';
 import { changeText, timingLine } from './markdown.js';
 import { describeCapture, notCheckedReason, type Report } from './report.js';
 
-export type CheckVerdict = 'no visual changes' | 'visual changes' | 'capture errors' | 'nothing checked';
+export type CheckVerdict = 'no visual changes' | 'no visual changes found, captured differently' | 'visual changes' | 'capture errors' | 'nothing checked';
 
 /** Exit codes of `ui-diff check`: usable as a pre-push gate. */
 export const CHECK_EXIT = { clean: 0, changes: 1, error: 2 } as const;
@@ -28,7 +28,7 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
   const s = report.stats;
   const notChecked = notCheckedReason(report);
   const changed = report.captures.filter((c) => c.status === 'changed' || c.status === 'added' || c.status === 'removed');
-  const verdict: CheckVerdict = s.errors ? 'capture errors' : notChecked ? 'nothing checked' : changed.length ? 'visual changes' : 'no visual changes';
+  const verdict: CheckVerdict = s.errors ? 'capture errors' : notChecked ? 'nothing checked' : changed.length ? 'visual changes' : report.notComparable ? 'no visual changes found, captured differently' : 'no visual changes';
   const exitCode = s.errors ? CHECK_EXIT.error : changed.length ? CHECK_EXIT.changes : CHECK_EXIT.clean;
   const themes = report.themes.length;
   const where = (c: (typeof report.captures)[number]) => `${c.viewport}${themes > 1 ? `/${c.theme}` : ''}`;
@@ -36,15 +36,21 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
   const head = report.head.includesUncommitted ? `${report.head.label} + uncommitted changes` : report.head.label;
   lines.push(`base ${report.base.label} → head ${head} · ${report.routes.length} route${report.routes.length === 1 ? '' : 's'} · ${report.viewports.join(', ')} · ${report.themes.join(', ')}`);
   if (notChecked) lines.push('', `Nothing was checked: ${notChecked}.`);
+  if (report.notComparable) lines.push('', `Base and head were captured differently (${report.notComparable.map((n) => n.key).join(', ')}): not a clean result.`);
 
   if (changed.length) {
     lines.push('', `Changed (${changed.length} of ${s.captures} capture${s.captures === 1 ? '' : 's'})`);
     for (const c of changed) lines.push(`  ${c.route.path}  ${where(c)}  ${describeCapture(c)}`);
     for (const route of [...new Set(changed.map((c) => c.route.path))]) {
       const rows = new Map<string, { magnitude: number; where: string[] }>();
+      const unverified = new Set<string>();
       const ofRoute = changed.filter((c) => c.route.path === route && c.styleDiff);
       for (const c of ofRoute) {
         for (const change of c.styleDiff!.changes) {
+          if (change.verified === false) {
+            unverified.add(`${change.name}: ${changeText(change)} (${change.unverified?.join('; ')})`);
+            continue;
+          }
           const text = `${change.name}${change.name === change.selector ? '' : ` (${change.selector})`}: ${changeText(change)}`;
           const row = rows.get(text) ?? { magnitude: 0, where: [] };
           row.magnitude = Math.max(row.magnitude, change.magnitude);
@@ -56,6 +62,7 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
       lines.push('', `Measured changes on ${route}`);
       if (rows.size === 0) lines.push('  none: the pixels changed without a measured style, text or size change');
       for (const [text, row] of [...rows].sort((a, b) => b[1].magnitude - a[1].magnitude)) lines.push(`  - ${text}${row.where.length < ofRoute.length ? ` (${row.where.join(', ')})` : ''}`);
+      if (unverified.size) lines.push(`  unverified: ${[...unverified].join('; ')}`);
     }
   }
   const failed = report.captures.filter((c) => c.status === 'error');

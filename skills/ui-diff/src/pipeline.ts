@@ -9,7 +9,7 @@ import { CaptureSession, ensureBrowser, frozenTime, launchBrowser, resolveBrowse
 import { parseVariantFlag, pickThemes, pickViewports, resolveRoute, type ResolvedConfig, type ResolvedRoute, type Step, type ThemeConfig, type VariantSpec, type ViewportConfig } from './config.js';
 import { detectChanges, resolveBaseRef, type DetectResult } from './detect.js';
 import { composeCompare, diffPngs, focusBoxes } from './diff.js';
-import { diffElements, explainRegions, matchElements } from './elements.js';
+import { diffElements, explainRegions, matchElements, verifyChanges } from './elements.js';
 import { changedLines, git, gitCommonDir, mergeBase, revParse, shortSha } from './git.js';
 import { COLORS, composeRow, readPng, resizeToWidth, writePng, type Box } from './image.js';
 import { captureKey, keyId, type CaptureKey } from './key.js';
@@ -17,7 +17,7 @@ import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
 import { distinctFrames, encodeSideBySideGif, isAnimationPackage, motionWarning, recordFrames, stepTokens, touchesAnimation, writeFile, type RawFrame } from './motion.js';
 import { realpathIfExists } from './paths.js';
-import { autoSummary, computeStats, fingerprintDifferences, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureFingerprint, type CaptureResult, type MotionResult, type Report, type BaseCacheInfo, type SideFingerprint, type SideSummary, type Timings, type VariantGroup } from './report.js';
+import { autoSummary, comparability, computeStats, fingerprintDifferences, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureFingerprint, type CaptureResult, type MotionResult, type Report, type BaseCacheInfo, type SideFingerprint, type SideSummary, type Timings, type VariantGroup } from './report.js';
 import { killAllServers, serverLogWarnings } from './server.js';
 import { SideManager, sideLabel, type Side, type SideRequest } from './sides.js';
 import { describeStep } from './steps.js';
@@ -343,6 +343,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       ...extras,
       ...(baseCache ? { baseCache } : {}),
       ...reportRegions(cfg, prepared.routes),
+      ...comparability(captures),
       warnings,
       stats: computeStats(captures),
     };
@@ -681,6 +682,7 @@ function styleDiffStage(captures: CaptureResult[], records: Map<string, CaptureR
     const all = diffElements(base, head, match, { focusOnly: c.regions?.focusOnly });
     const kept = all.slice(0, cfg.styleDiff.maxChanges);
     const regions = c.diff ? explainRegions(c.diff.regions, c.diff.scale, head, base, kept) : [];
+    verifyChanges(kept, c.status === 'changed' ? (c.diff?.regions ?? []) : [], cfg.styleDiff.minConfidence);
     const count = (level: string) => match.pairs.filter((p) => p.confidence === level).length;
     c.styleDiff = {
       matched: { high: count('high'), medium: count('medium'), low: count('low') },

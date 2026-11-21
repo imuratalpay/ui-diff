@@ -156,6 +156,9 @@ export interface ElementChange {
   inside?: number;
   /** For sorting, biggest first; no unit. */
   magnitude: number;
+  /** Matched confidently enough and its box overlaps changed pixels; false with the reasons when not. */
+  verified?: boolean;
+  unverified?: string[];
 }
 
 /** Inherited properties: a change on an element repeats on every descendant that inherits it. */
@@ -446,4 +449,23 @@ export function explainRegions(regions: Box[], scale: number, head: StyleSnapsho
     }
     return explanation;
   });
+}
+
+const CONFIDENCE_RANK: Record<MatchConfidence, number> = { high: 3, medium: 2, low: 1 };
+
+/**
+ * Marks each change verified or not before it is reported: the element must be matched with at
+ * least `minConfidence` (added and removed elements have no match to judge) and its box must
+ * overlap a changed pixel area. Changes that fail keep their reasons and are shown apart.
+ */
+export function verifyChanges(changes: ElementChange[], regions: Box[], minConfidence: MatchConfidence): void {
+  for (const change of changes) {
+    const reasons: string[] = [];
+    if (change.confidence && CONFIDENCE_RANK[change.confidence] < CONFIDENCE_RANK[minConfidence]) reasons.push(`matched with ${change.confidence} confidence only (${change.reason})`);
+    const box = change.deviceBox;
+    if (!box || !regions.some((r) => overlaps(box, r))) reasons.push('no changed pixels in its area');
+    change.verified = reasons.length === 0;
+    if (reasons.length) change.unverified = reasons;
+    else delete change.unverified;
+  }
 }

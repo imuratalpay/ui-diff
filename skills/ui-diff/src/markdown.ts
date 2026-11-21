@@ -108,9 +108,14 @@ function measuredSection(report: Report, route: string, captures: CaptureResult[
   if (measured.length === 0) return [];
   const themes = report.themes.length;
   const rows = new Map<string, { text: string; magnitude: number; where: string[] }>();
+  const unverified = new Map<string, string>();
   for (const c of measured) {
     const where = `${c.viewport}${themes > 1 ? `/${c.theme}` : ''}`;
     for (const change of c.styleDiff!.changes) {
+      if (change.verified === false) {
+        unverified.set(`${change.name}: ${changeText(change)}`, change.unverified?.join('; ') ?? '');
+        continue;
+      }
       const text = `${elementLabel(change.name, change.selector)}: ${escapeText(changeText(change))}`;
       const row = rows.get(text) ?? { text, magnitude: 0, where: [] };
       row.magnitude = Math.max(row.magnitude, change.magnitude);
@@ -119,9 +124,12 @@ function measuredSection(report: Report, route: string, captures: CaptureResult[
     }
   }
   const heading = `**Measured changes on ${code(route)}**`;
+  const unverifiedLine = unverified.size
+    ? [`<sub>Unverified (not matched confidently, or no changed pixels in their area): ${escapeText([...unverified].slice(0, 5).map(([text, why]) => `${text} (${why})`).join('; '))}${unverified.size > 5 ? `; +${unverified.size - 5} more in report.json` : ''}</sub>`, '']
+    : [];
   if (rows.size === 0) {
     const notes = [...new Set(measured.flatMap((c) => c.styleDiff!.regions.map((r) => r.note).filter((n): n is string => Boolean(n))))];
-    return [`${heading}: none. No measured style, text or size change; the pixels changed anyway${notes.length ? ` (${escapeText(notes.slice(0, 3).join('; '))})` : ''}.`, ''];
+    return [`${heading}: none. No measured style, text or size change; the pixels changed anyway${notes.length ? ` (${escapeText(notes.slice(0, 3).join('; '))})` : ''}.`, '', ...unverifiedLine];
   }
   const sorted = [...rows.values()].sort((a, b) => b.magnitude - a.magnitude);
   const line = (r: { text: string; where: string[] }) => `- ${r.text}${r.where.length < measured.length ? ` — ${r.where.join(', ')}` : ''}`;
@@ -134,7 +142,7 @@ function measuredSection(report: Report, route: string, captures: CaptureResult[
     out.push(`- …and ${sorted.length - visible} more in \`report.json\``);
   }
   if (omitted) out.push('', `<sub>${omitted} smaller change${omitted === 1 ? '' : 's'} left out (styleDiff.maxChanges).</sub>`);
-  return [...out, ''];
+  return [...out, '', ...unverifiedLine];
 }
 
 /** One line under a zoomed crop: what the changed areas inside it are. */
@@ -146,7 +154,7 @@ function focusCaption(c: CaptureResult, index: number): string | undefined {
   for (const r of c.styleDiff.regions) {
     const area = { x: r.region.x / scale, y: r.region.y / scale, width: r.region.width / scale, height: r.region.height / scale };
     if (area.x >= box.x + box.width || box.x >= area.x + area.width || area.y >= box.y + box.height || box.y >= area.y + area.height) continue;
-    const first = r.changes.map((i) => c.styleDiff!.changes[i])[0];
+    const first = r.changes.map((i) => c.styleDiff!.changes[i]).filter((x) => x.verified !== false)[0];
     if (first) parts.push(`${first.name}: ${changeText(first)}`);
     else if (r.element) parts.push(`${r.element.name}: ${r.note}`);
     else if (r.note) parts.push(r.note);
@@ -193,6 +201,12 @@ function changedSection(report: Report, captures: CaptureResult[], opts: RenderO
 }
 
 const INLINE_WARNINGS = 3;
+
+/** "Base and head were captured differently (fonts loaded on / desktop/light; …)": the run is not a clean comparison. */
+export function notComparableNotice(report: Report): string {
+  const keys = report.notComparable!.map((n) => `${n.key} on ${n.captures.slice(0, 3).join(', ')}${n.captures.length > 3 ? ` +${n.captures.length - 3}` : ''}`);
+  return `**Base and head were captured differently** (${escapeText(keys.join('; '))}), so differences may come from the capture environment and an unchanged result is not a clean one.`;
+}
 
 export function environmentWarning(differences: string[]): string {
   return `**The capture environment differed between base and head**, so this diff may come from it rather than from the code: ${escapeText(differences.join('; '))}.`;
@@ -523,7 +537,7 @@ function renderOnce(report: Report, opts: RenderOptions): string {
   const counts = notChecked
     ? 'nothing checked'
     : [s.changed && `${s.changed} changed`, s.added && `${s.added} new`, s.removed && `${s.removed} removed`, s.errors && `${s.errors} failed`, `${s.unchanged} unchanged`].filter(Boolean).join(', ');
-  out.push(`### ${opts.title} — ${counts}`, '');
+  out.push(`### ${opts.title} — ${counts}${report.notComparable && !notChecked ? ' (captured differently, not a clean result)' : ''}`, '');
   out.push(
     `**Base** ${code(sideLabel(report.base))} → **Head** ${code(sideLabel(report.head))} · ${report.routes.length} route${report.routes.length === 1 ? '' : 's'} · ${report.viewports.join(', ')} · ${report.themes.join(', ')}`,
     '',
@@ -534,6 +548,7 @@ function renderOnce(report: Report, opts: RenderOptions): string {
     const line = parts.join('; ');
     out.push(`<sub>${line[0].toUpperCase()}${line.slice(1)}.</sub>`, '');
   }
+  if (report.notComparable) out.push(`> ⚠️ ${notComparableNotice(report)}`, '');
   const summary = opts.summary?.trim();
   if (notChecked) out.push(`> ${notCheckedNotice(notChecked)}`, '');
   if (summary || !notChecked) out.push('#### Summary', '', (summary || autoSummary(report)).trim(), '');
