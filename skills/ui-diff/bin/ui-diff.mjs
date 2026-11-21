@@ -21,7 +21,12 @@ function newestMtime(dir) {
 
 function npmRun(args, what) {
   process.stderr.write(`[ui-diff] ${what}…\n`);
-  const result = spawnSync(npm, args, { cwd: root, stdio: ['ignore', process.stderr, process.stderr] });
+  // Node 20.12+ refuses to spawn a .cmd without a shell (EINVAL), so npm.cmd runs through one on
+  // Windows; the command is passed as a single string so Node does not warn about unescaped args.
+  const options = { cwd: root, stdio: ['ignore', process.stderr, process.stderr] };
+  const result = process.platform === 'win32'
+    ? spawnSync([npm, ...args].join(' '), { ...options, shell: true })
+    : spawnSync(npm, args, options);
   if (result.status !== 0) {
     process.stderr.write(`[ui-diff] error: \`npm ${args.join(' ')}\` failed in ${root}\n`);
     process.exit(result.status ?? 1);
