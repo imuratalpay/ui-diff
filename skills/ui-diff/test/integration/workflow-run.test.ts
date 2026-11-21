@@ -54,6 +54,9 @@ describe('example CI workflow, run step by step on an app repository', { timeout
     }
     writeFileSync(path.join(dir, '.gitignore'), 'node_modules/\ndist/\n.ui-diff/\n.runner/\n');
     writeFileSync(path.join(dir, 'serve.mjs'), "import http from 'node:http';\nimport { readFileSync } from 'node:fs';\nconst port = Number(process.argv[process.argv.indexOf('--port') + 1]);\nhttp.createServer((req, res) => { const css = req.url === '/app.css'; res.writeHead(200, { 'content-type': css ? 'text/css' : 'text/html' }); res.end(readFileSync(css ? 'app.css' : 'index.html')); }).listen(port, '127.0.0.1');\n");
+    // An app without dependencies, as CI has it after `npm ci`: a lockfile and no node_modules.
+    writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'app', version: '1.0.0', private: true }));
+    writeFileSync(path.join(dir, 'package-lock.json'), JSON.stringify({ name: 'app', version: '1.0.0', lockfileVersion: 3, requires: true, packages: { '': { name: 'app', version: '1.0.0' } } }, null, 2));
     writeFileSync(path.join(dir, 'app.css'), 'body{margin:24px;font:16px Arial,sans-serif} .cta{display:inline-block;background:#2563eb;color:#fff}');
     writeFileSync(path.join(dir, 'index.html'), PAGE('8px 14px'));
     writeFileSync(path.join(dir, 'ui-diff.config.json'), JSON.stringify({ startCommand: 'node serve.mjs --port {port}', routes: [{ path: '/', name: 'home', files: ['index.html', 'app.css'] }], viewports: [{ name: 'desktop', width: 800, height: 600 }], a11y: { enabled: false }, tokens: { enabled: false } }));
@@ -76,8 +79,9 @@ describe('example CI workflow, run step by step on an app repository', { timeout
     assert.match(readFileSync(path.join(dir, '.runner', 'output'), 'utf8'), /^key=ui-diff-base-[0-9a-f]{12}-[0-9a-f]{16}$/m);
 
     sh(local(step('Capture and diff', values)));
-    const report = JSON.parse(readFileSync(path.join(dir, '.ui-diff', 'report.json'), 'utf8')) as { stats: { changed: number } };
+    const report = JSON.parse(readFileSync(path.join(dir, '.ui-diff', 'report.json'), 'utf8')) as { stats: { changed: number }; timings: { prepare: { base: { install: { kind: string } }; head: { install: { kind: string } } } } };
     assert.equal(report.stats.changed, 1);
+    assert.deepEqual([report.timings.prepare.base.install.kind, report.timings.prepare.head.install.kind], ['none', 'none'], 'a lockfile without packages installs nothing');
 
     // No GitHub here: the publish step as written, plus --dry-run.
     const out = sh(`${step('Publish the sticky comment', values)} --dry-run --quiet`);

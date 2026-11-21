@@ -62,6 +62,41 @@ function findUp(start: string, stop: string, predicate: (dir: string) => boolean
  * Content hash of a lockfile that ignores line endings and trailing whitespace, so a checkout
  * with CRLF endings (or an editor's trailing newline) still counts as the same dependency set.
  */
+/**
+ * Whether a lockfile lists any package to install. An app without dependencies gets a lockfile
+ * but no node_modules. Unreadable or unknown formats count as listing packages.
+ */
+export function lockfileHasPackages(file: string): boolean {
+  let text: string;
+  try {
+    if (file.endsWith('.lockb')) return true;
+    text = readFileSync(file, 'utf8');
+  } catch {
+    return true;
+  }
+  const name = path.basename(file);
+  try {
+    if (name === 'package-lock.json' || name === 'npm-shrinkwrap.json') {
+      const lock = JSON.parse(text) as { packages?: Record<string, unknown>; dependencies?: Record<string, unknown> };
+      if (lock.packages) return Object.keys(lock.packages).some((k) => k !== '');
+      return Object.keys(lock.dependencies ?? {}).length > 0;
+    }
+    if (name === 'bun.lock') {
+      // JSON with trailing commas.
+      const lock = JSON.parse(text.replace(/,(\s*[}\]])/g, '$1')) as { packages?: Record<string, unknown> };
+      return Object.keys(lock.packages ?? {}).length > 0;
+    }
+  } catch {
+    return true;
+  }
+  if (name === 'pnpm-lock.yaml') return /^packages:[ \t]*\n(?:[ \t]*\n)*[ \t]+\S/m.test(text);
+  if (name === 'yarn.lock') {
+    const entries = text.split('\n').filter((l) => /^\S.*:\s*$/.test(l) && !l.startsWith('#') && !l.startsWith('__metadata'));
+    return entries.some((l) => !l.includes('@workspace:'));
+  }
+  return true;
+}
+
 export function lockfileHash(file: string): string | undefined {
   let data: Buffer;
   try {
@@ -145,18 +180,21 @@ export function planInstall(cfg: ResolvedConfig, worktreeRoot: string): InstallP
   const lockDir = findUp(pkgDir, worktreeRoot, (d) => LOCKFILES.some((l) => existsSync(path.join(d, l.file))));
   if (!lockDir) return { kind: 'command', command: 'npm install --no-audit --no-fund', dir: pkgDir, reason: 'no lockfile' };
   const lock = LOCKFILES.find((l) => existsSync(path.join(lockDir, l.file)))!;
+  if (!lockfileHasPackages(path.join(lockDir, lock.file)) && !declaresDependencies(pkgDir)) return { kind: 'none', reason: `${lock.file} lists no packages, so there is nothing to install` };
   const rel = path.relative(worktreeRoot, lockDir);
   const mainLockDir = path.join(cfg.repoRoot, rel);
   const hash = lockfileHash(path.join(lockDir, lock.file));
-  const matches = Boolean(hash) && hash === lockfileHash(path.join(mainLockDir, lock.file)) && existsSync(path.join(mainLockDir, 'node_modules'));
+  const sameLock = Boolean(hash) && hash === lockfileHash(path.join(mainLockDir, lock.file));
+  const matches = sameLock && existsSync(path.join(mainLockDir, 'node_modules'));
+  const why = sameLock ? `${lock.file} matches your checkout, but your checkout has no node_modules to reuse` : `${lock.file} differs from your checkout`;
   const lockKey = hash ? `${rel}|${lock.file}|${hash}` : undefined;
   if (usesNext(pkgDir)) {
-    const why = 'Next.js (Turbopack) does not follow node_modules symlinks that point outside the project';
-    if (matches) return { kind: 'copy', dir: lockDir, reason: `${lock.file} matches your checkout; ${why}, so the worktree gets a hard-linked copy` };
-    return { kind: 'command', command: lock.command, dir: lockDir, reason: `${lock.file} differs from your checkout (${why})`, lockKey, share: 'copy' };
+    const symlinks = 'Next.js (Turbopack) does not follow node_modules symlinks that point outside the project';
+    if (matches) return { kind: 'copy', dir: lockDir, reason: `${lock.file} matches your checkout; ${symlinks}, so the worktree gets a hard-linked copy` };
+    return { kind: 'command', command: lock.command, dir: lockDir, reason: `${why} (${symlinks})`, lockKey, share: 'copy' };
   }
   if (matches) return { kind: 'link', dir: lockDir, reason: `${lock.file} matches your checkout` };
-  return { kind: 'command', command: lock.command, dir: lockDir, reason: `${lock.file} differs from your checkout`, lockKey };
+  return { kind: 'command', command: lock.command, dir: lockDir, reason: why, lockKey };
 }
 
 /**
@@ -179,6 +217,16 @@ export class SharedInstalls {
     this.installs.set(key, pending);
     await pending;
     return undefined;
+  }
+}
+
+/** A lockfile that lists nothing while package.json declares dependencies is stale: install anyway. */
+function declaresDependencies(pkgDir: string): boolean {
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(pkgDir, 'package.json'), 'utf8')) as Record<string, Record<string, string> | undefined>;
+    return ['dependencies', 'devDependencies', 'optionalDependencies'].some((k) => Object.keys(pkg[k] ?? {}).length > 0);
+  } catch {
+    return true;
   }
 }
 
@@ -316,6 +364,8 @@ export class SideManager {
     } else if (plan.kind === 'copy') {
       log.step(`${request.name}: reusing installed dependencies (${plan.reason})`);
       copyAll(cfg, dir, plan.dir!);
+    } else if (plan.kind === 'none') {
+      log.step(`${request.name}: no dependency install (${plan.reason})`);
     } else if (plan.kind === 'command') {
       const install = async () => {
         log.step(`${request.name}: installing dependencies (${plan.reason}): ${plan.command}`);
