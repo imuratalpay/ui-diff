@@ -48,6 +48,8 @@ export interface CaptureRecord {
   stylesFile?: string;
   axe?: AxeViolation[];
   focusOrder?: FocusStop[];
+  /** `window.devicePixelRatio` measured in the page: device pixels per CSS pixel in the screenshot. */
+  scale?: number;
   durationMs: number;
 }
 
@@ -323,6 +325,7 @@ export class CaptureSession {
         if (record.pageErrors.length < 10) record.pageErrors.push(redact(error.message).slice(0, 300));
       });
       record.httpStatus = await this.openAndSettle(page, target.url, target.route, { freeze: cfg.capture.disableAnimations, fullPage });
+      record.scale = await page.evaluate(() => window.devicePixelRatio);
       const shot = await this.screenshot(page, target.route, fullPage);
       mkdirSync(path.dirname(target.file), { recursive: true });
       writeFileSync(target.file, shot.buffer);

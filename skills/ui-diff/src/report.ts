@@ -31,6 +31,8 @@ export interface CaptureResult {
     shifted?: ShiftedRun[];
     /** Height (CSS px) of base content with no counterpart on head. */
     removedHeight?: number;
+    /** Areas shown in the zoomed crops (`images.focus`, same order), CSS px. */
+    focusBoxes?: Box[];
   };
   /** Paths relative to the output directory. */
   images: { base?: string; head?: string; diff?: string; compare?: string; focus: string[] };

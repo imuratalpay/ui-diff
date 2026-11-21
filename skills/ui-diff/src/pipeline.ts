@@ -157,10 +157,6 @@ function rel(outDir: string, file: string): string {
   return path.relative(outDir, file).split(path.sep).join('/');
 }
 
-function scaleOf(viewport: ViewportConfig): number {
-  return viewport.deviceScaleFactor ?? (viewport.isMobile ? 2 : 1);
-}
-
 interface Plan {
   route: ResolvedRoute;
   viewport: ViewportConfig;
@@ -452,7 +448,10 @@ function compareCapture(plan: Plan, baseRec: CaptureRecord, headRec: CaptureReco
     result.error = httpErrors.join('; ');
     return result;
   }
-  const scale = scaleOf(plan.viewport);
+  const scale = headRec.scale ?? baseRec.scale ?? 1;
+  if (baseRec.scale !== undefined && headRec.scale !== undefined && baseRec.scale !== headRec.scale) {
+    result.warnings.push(`base and head rendered at different device pixel ratios (${baseRec.scale}× and ${headRec.scale}×); sizes use head's`);
+  }
   const diff = diffPngs(readPng(baseRec.file!), readPng(headRec.file!), {
     threshold: cfg.diff.threshold,
     includeAA: cfg.diff.includeAA,
@@ -490,6 +489,7 @@ function compareCapture(plan: Plan, baseRec: CaptureRecord, headRec: CaptureReco
   writePng(compareFile, composeCompare(diff, labels, { maxWidth: cfg.diff.compositeMaxWidth }));
   result.images.compare = rel(outDir, compareFile);
   const boxes = focusBoxes(diff.regions, diff.width, diff.height, { max: cfg.diff.maxFocusCrops, padding: cfg.diff.focusPadding * scale, scale });
+  if (boxes.length) result.diff.focusBoxes = boxes.map((b) => ({ x: css(b.x), y: css(b.y), width: css(b.width), height: css(b.height) }));
   boxes.forEach((box, i) => {
     const file = path.join(outDir, 'compare', `${plan.id}__focus-${i + 1}.png`);
     writePng(file, composeCompare(diff, labels, { box, maxWidth: cfg.diff.compositeMaxWidth, upscaleBelow: 360 * scale }));
