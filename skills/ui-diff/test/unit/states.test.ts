@@ -3,6 +3,11 @@ import { describe, it } from 'node:test';
 import { matchElements, verifyChanges, type ElementChange } from '../../src/elements.js';
 import { diffStates, stateCounts, verifyStateChanges, type StateCapture, type StateStyles } from '../../src/states.js';
 import type { StyledElement, StyleSnapshot } from '../../src/tokens.js';
+import { checkSummary } from '../../src/check.js';
+import { renderComment } from '../../src/markdown.js';
+import { computeStats } from '../../src/report.js';
+import { verdict } from '../../src/verdict.js';
+import { sampleReport } from './fixtures.js';
 
 const NONE: StateStyles = { color: '#ffffff', background: '#2563eb', 'border-color': 'none', outline: 'none', 'box-shadow': 'none', transform: 'none', opacity: '1', 'text-decoration': 'none', cursor: 'pointer' };
 
@@ -78,5 +83,42 @@ describe('hover and focus state diff', () => {
 
   it('says how many it checked and skipped, with why', () => {
     assert.equal(stateCounts({ checked: 4, skipped: 3, skippedWhy: { hidden: 1, 'outside the viewport': 2 } }), '4 checked, 3 skipped (2 outside the viewport, 1 hidden)');
+  });
+});
+
+describe('hover and focus changes in the comment and in check', () => {
+  /** sampleReport with its changed capture made unchanged, and one verified hover change on it. */
+  function stateOnly() {
+    const r = sampleReport();
+    const c = r.captures[0];
+    const changes = diff(side('base', { 'button.save': { hover: { background: '#1d4ed8' } } }), side('head', { 'button.save': { hover: { background: '#1e3a8a' } } }));
+    changes[0].verified = true;
+    r.captures[0] = { ...c, status: 'unchanged', diff: undefined, images: { focus: [], states: [{ file: 'compare/home__desktop__light__hover-1.png', name: "button 'Save'", state: 'hover', text: 'background #1d4ed8 → #1e3a8a' }] }, styleDiff: { matched: { high: 2, medium: 0, low: 0 }, changes, regions: [] } };
+    r.stats = computeStats(r.captures);
+    return r;
+  }
+
+  it('counts a hover change on a page whose default state did not change, and lists it under its element', () => {
+    const r = stateOnly();
+    assert.deepEqual([verdict(r).kind, verdict(r).text], ['visual changes', '1 measured change on 1 route']);
+    const body = renderComment(r, { id: 'default', title: 'UI diff', link: (p) => p });
+    assert.match(body, /<sub>2 captures · 2 unchanged · 1 with hover or focus changes<\/sub>/);
+    assert.match(body, /<summary>Unchanged \(1\)<\/summary>\n\n- `\/ · mobile`\n/, 'the capture with a hover change is not listed as unchanged');
+    assert.match(body, /#### Measured changes\n\n\*\*`\/`\*\*\n\n- `button 'Save'` \(`button\.save`\) · hover: background #1d4ed8 → #1e3a8a — desktop\n/);
+    assert.match(body, /#### Images\n\n\*\*`\/`\*\* · desktop — no change in the default state\n\n<img src="compare\/home__desktop__light__hover-1\.png" alt="\/ · desktop: button 'Save' on hover, before and after">\n\n<sub>button 'Save' · hover: background #1d4ed8 → #1e3a8a<\/sub>\n/);
+    const check = checkSummary(r, '/o');
+    assert.equal(check.exitCode, 1);
+    assert.match(check.text, /\n {2}- button 'Save' \(button\.save\) · hover: background #1d4ed8 → #1e3a8a — desktop\n/);
+    assert.match(check.text, /Images \(0 of 2 captures changed, 1 more with hover or focus changes\)\n {2}\/ {2}desktop {2}no change in the default state\n {4}\/o\/compare\/home__desktop__light__hover-1\.png\n/);
+  });
+
+  it('puts an unverified state change on the unverified line, and counts nothing', () => {
+    const r = stateOnly();
+    const change = r.captures[0].styleDiff!.changes[0];
+    change.verified = false;
+    change.unverified = ['no changed pixels in its hover crops'];
+    r.captures[0].images.states = undefined;
+    assert.equal(verdict(r).text, 'No visual changes');
+    assert.match(renderComment(r, { id: 'default', title: 'UI diff', link: (p) => p }), /Unverified \(not matched confidently, or no changed pixels in their area\): button 'Save' · hover: background #1d4ed8 → #1e3a8a \(no changed pixels in its hover crops\)/);
   });
 });

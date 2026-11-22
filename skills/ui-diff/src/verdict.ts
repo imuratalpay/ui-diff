@@ -13,6 +13,11 @@ export function isShownChange(c: CaptureResult): boolean {
   return c.status === 'changed' || c.status === 'added' || c.status === 'removed';
 }
 
+/** A verified change in the hover or focus state of one of the capture's elements. */
+export function hasStateChanges(c: CaptureResult): boolean {
+  return Boolean(c.styleDiff?.changes.some((x) => x.state && x.verified !== false));
+}
+
 function plural(n: number, word: string, many = `${word}s`): string {
   return `${n} ${n === 1 ? word : many}`;
 }
@@ -39,6 +44,8 @@ export interface MeasuredRow {
   selector: string;
   /** The CSS property, "size", "position", "text", or the kind ("added", "removed") of a whole element. */
   property: string;
+  /** Set for a change in the hover or keyboard focus state. */
+  state?: 'hover' | 'focus';
   before?: string;
   after?: string;
   /** "padding 8px 14px → 10px 18px", "added (+2 inside)". */
@@ -75,6 +82,7 @@ export function variantsLabel(variants: Array<Pick<MeasuredVariant, 'viewport' |
 
 interface PropertyRow {
   property: string;
+  state?: 'hover' | 'focus';
   before?: string;
   after?: string;
   text: string;
@@ -86,7 +94,7 @@ interface PropertyRow {
 function propertyRows(change: ElementChange): PropertyRow[] {
   if (change.kind !== 'changed') return [{ property: change.kind, text: changeText(change), id: change.id, kind: 'cause' }];
   // Reports written before causes and effects were told apart count every change.
-  return change.changes.map((p) => ({ property: p.property, before: p.before, after: p.after, text: p.property === 'position' ? p.after : `${p.property} ${p.before} → ${p.after}`, id: p.id, kind: p.kind ?? 'cause', cause: p.cause }));
+  return change.changes.map((p) => ({ property: p.property, ...(change.state ? { state: change.state } : {}), before: p.before, after: p.after, text: p.property === 'position' ? p.after : `${p.property} ${p.before} → ${p.after}`, id: p.id, kind: p.kind ?? 'cause', cause: p.cause }));
 }
 
 /** "padding 8px 14px → 10px 18px", leaving out what follows from it. */
@@ -97,7 +105,8 @@ export function causeText(change: ElementChange): string {
 
 /** The measured changes of every changed route, in the order the routes were captured. */
 export function measurements(report: Report): RouteMeasurements[] {
-  const changed = report.captures.filter((c) => c.status === 'changed' && c.styleDiff);
+  // A capture whose default state did not change can still have hover or focus changes.
+  const changed = report.captures.filter((c) => c.styleDiff && (c.status === 'changed' || (c.status === 'unchanged' && c.styleDiff.changes.some((x) => x.state))));
   const out: RouteMeasurements[] = [];
   let next = 1;
   for (const route of [...new Set(changed.map((c) => c.route.path))]) {
@@ -112,16 +121,17 @@ export function measurements(report: Report): RouteMeasurements[] {
     const hidden = new Set<string>();
     const pending: Array<{ c: CaptureResult; change: ElementChange; p: PropertyRow }> = [];
     const add = (map: Map<string, Row>, key: string, c: CaptureResult, change: ElementChange, p: PropertyRow, cause?: string) => {
-      const row = map.get(key) ?? { key, kind: p.kind, ...(cause ? { cause } : {}), name: change.name, selector: change.selector, property: p.property, before: p.before, after: p.after, text: p.text, magnitude: 0, variants: [] };
+      const row = map.get(key) ?? { key, kind: p.kind, ...(cause ? { cause } : {}), name: change.name, selector: change.selector, property: p.property, ...(p.state ? { state: p.state } : {}), before: p.before, after: p.after, text: p.text, magnitude: 0, variants: [] };
       row.magnitude = Math.max(row.magnitude, change.magnitude);
       if (!row.variants.some((v) => v.capture === c.id)) row.variants.push({ capture: c.id, viewport: c.viewport, theme: c.theme, magnitude: change.magnitude, ...(p.id ? { change: p.id } : {}), ...(p.cause ? { cause: p.cause } : {}) });
       map.set(key, row);
     };
     for (const c of captures) {
       for (const change of c.styleDiff!.changes) {
+        if (c.status !== 'changed' && !change.state) continue;
         const element = `${change.name}\u0000${change.selector}`;
         if (change.verified === false) {
-          unverified.set(`${change.name}: ${causeText(change)}`, change.unverified?.join('; ') ?? '');
+          unverified.set(`${change.name}${change.state ? ` · ${change.state}` : ''}: ${causeText(change)}`, change.unverified?.join('; ') ?? '');
           for (const p of propertyRows(change)) if (p.id) hidden.add(`${c.id}|${p.id}`);
           continue;
         }
@@ -131,7 +141,7 @@ export function measurements(report: Report): RouteMeasurements[] {
             continue;
           }
           elementMagnitude.set(element, Math.max(elementMagnitude.get(element) ?? 0, change.magnitude));
-          const key = `${element}\u0000${p.property}\u0000${p.before ?? ''}\u0000${p.after ?? ''}\u0000${p.text}`;
+          const key = `${element}\u0000${p.state ?? ''}\u0000${p.property}\u0000${p.before ?? ''}\u0000${p.after ?? ''}\u0000${p.text}`;
           add(rows, key, c, change, p);
           if (p.id) rowOf.set(`${c.id}|${p.id}`, key);
         }
@@ -218,10 +228,12 @@ export interface Verdict {
 export function verdict(report: Report): Verdict {
   const s = report.stats;
   const changed = report.captures.filter(isShownChange);
-  const kind: CheckVerdict = s.errors ? 'capture errors' : notCheckedReason(report) ? 'nothing checked' : changed.length ? 'visual changes' : report.notComparable ? 'no visual changes found, captured differently' : 'no visual changes';
+  const statesOnly = report.captures.filter((c) => !isShownChange(c) && hasStateChanges(c));
+  const anyChange = changed.length + statesOnly.length > 0;
+  const kind: CheckVerdict = s.errors ? 'capture errors' : notCheckedReason(report) ? 'nothing checked' : anyChange ? 'visual changes' : report.notComparable ? 'no visual changes found, captured differently' : 'no visual changes';
   if (kind === 'nothing checked') return { kind, text: 'Nothing was checked' };
   const failed = s.errors ? plural(s.errors, 'capture failed', 'captures failed') : '';
-  if (changed.length === 0) {
+  if (!anyChange) {
     const text = report.notComparable ? 'No visual changes, but captures were not comparable' : 'No visual changes';
     if (!failed) return { kind, text };
     return { kind, text: s.errors === s.captures ? capitalize(failed) : `${capitalize(failed)}; ${text[0].toLowerCase()}${text.slice(1)} in the rest` };

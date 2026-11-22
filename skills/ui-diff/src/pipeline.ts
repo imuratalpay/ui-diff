@@ -11,7 +11,8 @@ import { detectChanges, resolveBaseRef, type DetectResult } from './detect.js';
 import { blinkFrames, clipToFocus, composeCompare, composePair, diffPngs, focusBoxes } from './diff.js';
 import { diffElements, explainRegions, matchElements, onlyEffects, verifyChanges } from './elements.js';
 import { changedLines, git, gitCommonDir, mergeBase, revParse, shortSha } from './git.js';
-import { COLORS, composeRow, readPng, resizeToWidth, writePng, type Box } from './image.js';
+import { measureText } from './font.js';
+import { COLORS, composeRow, padTo, readPng, resizeToWidth, writePng, type Box } from './image.js';
 import { captureKey, keyId, type CaptureKey } from './key.js';
 import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
@@ -331,7 +332,10 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
     const captures = diffStage(prepared.plans, records, { base, head, cfg, outDir, cache: baseCache });
     const diffMs = since(diffStart);
     const styleDiffStart = performance.now();
-    if (cfg.styleDiff.enabled) styleDiffStage(captures, records, cfg);
+    if (cfg.styleDiff.enabled) {
+      styleDiffStage(captures, records, cfg);
+      statePairs(captures, records, { cfg, outDir, base, head });
+    }
     const styleDiffMs = since(styleDiffStart);
     const { extras, timings: extrasTimings } = await extrasStage(opts, booted, prepared, captures, records);
     const cutWarning = truncationWarning(captures, cfg.capture.maxHeight);
@@ -679,6 +683,36 @@ function diffStage(plans: Plan[], records: Map<string, CaptureRecord>, ctx: { ba
  * Element-level explanation of each capture: base and head element maps matched, their measured
  * style differences, and each changed pixel area named after its element.
  */
+/**
+ * A still before | after pair of each verified hover or focus change: the two sides' crops of the
+ * element in that state, side by side, small ones enlarged.
+ */
+function statePairs(captures: CaptureResult[], records: Map<string, CaptureRecord>, ctx: { cfg: ResolvedConfig; outDir: string; base: Side; head: Side }): void {
+  for (const c of captures) {
+    const changes = (c.styleDiff?.changes ?? []).filter((x) => x.state && x.stateCrops && x.verified !== false);
+    const scale = records.get(`head:${c.id}`)?.scale ?? 1;
+    changes.forEach((x, i) => {
+      let [before, after] = [readPng(x.stateCrops!.base), readPng(x.stateCrops!.head)];
+      const small = 240 * scale;
+      if (Math.max(before.width, after.width) < small) [before, after] = [resizeToWidth(before, before.width * 2), resizeToWidth(after, after.width * 2)];
+      const labels = [`BEFORE ${ctx.base.shortSha ?? 'BASE'} · ${x.state!.toUpperCase()}`, `AFTER ${ctx.head.shortSha ?? 'HEAD'} · ${x.state!.toUpperCase()}`];
+      // A small element still gets its whole label: the crop is padded, not enlarged further.
+      const wide = Math.max(...labels.map((l) => measureText(l, 2))) + 12;
+      [before, after] = [before, after].map((p) => padTo(p, Math.max(p.width, wide), p.height, COLORS.background));
+      const image = composeRow(
+        [
+          { image: before, label: labels[0], accent: COLORS.before },
+          { image: after, label: labels[1], accent: COLORS.after },
+        ],
+        { maxWidth: ctx.cfg.diff.compositeMaxWidth },
+      );
+      const file = path.join(ctx.outDir, 'compare', `${c.id}__${x.state}-${i + 1}.png`);
+      writePng(file, image);
+      (c.images.states ??= []).push({ file: rel(ctx.outDir, file), name: x.name, state: x.state!, text: x.changes.map((p) => `${p.property} ${p.before} → ${p.after}`).join(' · ') });
+    });
+  }
+}
+
 /** Elements kept per capture whose every change is an effect of a kept cause. */
 const EFFECTS_KEPT = 200;
 

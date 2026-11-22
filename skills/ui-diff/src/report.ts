@@ -44,7 +44,17 @@ export interface CaptureResult {
    * focus: before | after | diff crops of the changed areas; pairs: the same areas as a still
    * base | head pair with the changed boxes outlined; blinks: the same areas as a blinking GIF.
    */
-  images: { base?: string; head?: string; diff?: string; compare?: string; focus: string[]; pairs?: string[]; blinks?: string[] };
+  images: {
+    base?: string;
+    head?: string;
+    diff?: string;
+    compare?: string;
+    focus: string[];
+    pairs?: string[];
+    blinks?: string[];
+    /** Before | after pairs of the verified hover and focus changes, with what each shows. */
+    states?: Array<{ file: string; name: string; state: 'hover' | 'focus'; text: string }>;
+  };
   warnings: string[];
   truncated: boolean;
   /** What each side was rendered with; set when both sides were captured. */

@@ -31,7 +31,7 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
   const notChecked = notCheckedReason(report);
   const changed = report.captures.filter(isShownChange);
   const v = verdict(report);
-  const exitCode = s.errors ? CHECK_EXIT.error : changed.length ? CHECK_EXIT.changes : CHECK_EXIT.clean;
+  const exitCode = s.errors ? CHECK_EXIT.error : v.kind === 'visual changes' ? CHECK_EXIT.changes : CHECK_EXIT.clean;
   const themes = report.themes.length;
   const where = (c: (typeof report.captures)[number]) => `${c.viewport}${themes > 1 ? `/${c.theme}` : ''}`;
   const lines = [`ui-diff check: ${v.text} (exit ${exitCode})`];
@@ -45,7 +45,7 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
     lines.push('', `Measured changes on ${r.route}`);
     const label = (e: { name: string; selector: string }) => `${e.name}${e.name === e.selector ? '' : ` (${e.selector})`}`;
     for (const row of r.rows) {
-      lines.push(`  - ${label(row)}: ${row.text} — ${row.where}`);
+      lines.push(`  - ${label(row)}${row.state ? ` · ${row.state}` : ''}: ${row.text} — ${row.where}`);
       const effects = effectLines(row);
       const own = effects.filter((e) => !e.element);
       const others = effects.filter((e) => e.element);
@@ -55,12 +55,13 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
     if (r.rows.length === 0) lines.push('  none verified');
     if (r.unverified.size) lines.push(`  unverified: ${[...r.unverified].map(([text, why]) => `${text} (${why})`).join('; ')}`);
   }
-  if (changed.length) {
-    lines.push('', `Images (${changed.length} of ${s.captures} capture${s.captures === 1 ? '' : 's'} changed)`);
-    for (const c of changed) {
-      lines.push(`  ${c.route.path}  ${where(c)}  ${describeCapture(c)}`);
+  const shown = report.captures.filter((c) => isShownChange(c) || c.images.states?.length);
+  if (shown.length) {
+    lines.push('', `Images (${changed.length} of ${s.captures} capture${s.captures === 1 ? '' : 's'} changed${shown.length > changed.length ? `, ${shown.length - changed.length} more with hover or focus changes` : ''})`);
+    for (const c of shown) {
+      lines.push(`  ${c.route.path}  ${where(c)}  ${isShownChange(c) ? describeCapture(c) : 'no change in the default state'}`);
       const pictures = c.images.pairs?.length ? c.images.pairs : c.images.compare ? [c.images.compare] : [];
-      for (const p of pictures) lines.push(`    ${rel(path.join(outDir, p))}`);
+      for (const p of [...pictures, ...(c.images.states ?? []).map((x) => x.file)]) lines.push(`    ${rel(path.join(outDir, p))}`);
     }
   }
   const pixelOnly = pixelOnlyAreas(report);

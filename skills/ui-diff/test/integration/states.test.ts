@@ -73,21 +73,33 @@ describe('hover and focus states in a real run', { timeout: 600_000 }, () => {
   const stateChanges = (report: Report) =>
     report.captures.flatMap((c) => (c.styleDiff?.changes ?? []).filter((x) => x.state).map((x) => `${x.selector} · ${x.state}: ${x.changes.map((p) => `${p.property} ${p.before} → ${p.after}`).join(', ')}${x.verified ? '' : ' (unverified)'}`));
 
-  it('finds a hover-only color change, verified by its crops', async () => {
-    const { report } = await run('hover-color');
+  it('finds a hover-only color change, verified by its crops, and reports it as a change of its element', async () => {
+    const { outDir, report, comment } = await run('hover-color');
     assert.deepEqual(stateChanges(report), ['button.save · hover: background #1d4ed8 → #1e3a8a']);
     assert.equal(report.captures[0].status, 'unchanged', 'the default state did not change');
+    assert.equal(comment.split('\n')[1], '### UI diff (local preview) — 1 measured change on 1 route');
+    assert.match(comment, /\n- `button 'Save'` \(`button\.save`\) · hover: background #1d4ed8 → #1e3a8a — desktop\n/);
+    assert.match(comment, /\*\*`\/`\*\* · desktop — no change in the default state\n\n<img src="compare\/settings__desktop__light__hover-1\.png" alt="\/ · desktop: button 'Save' on hover, before and after">\n\n<sub>button 'Save' · hover: background #1d4ed8 → #1e3a8a<\/sub>/);
+    assert.ok(existsSync(path.join(outDir, 'compare', 'settings__desktop__light__hover-1.png')));
+    assert.deepEqual(report.measured!.map((g) => [g.kind, g.state, g.property]), [['cause', 'hover', 'background']]);
   });
 
   it('finds a focus ring that was removed', async () => {
-    const { report } = await run('focus-ring-removed');
+    const { report, comment } = await run('focus-ring-removed');
     assert.deepEqual(stateChanges(report), ['button.save · focus: outline 2px solid #2563eb, offset 2px → none']);
+    assert.match(comment, /\n- `button 'Save'` \(`button\.save`\) · focus: outline 2px solid #2563eb, offset 2px → none — desktop\n/);
+    assert.match(comment, /<img src="compare\/settings__desktop__light__focus-1\.png"/);
   });
 
   it('finds no state change when only a paragraph changed color', async () => {
-    const { report } = await run('lead-color');
+    const { report, comment } = await run('lead-color');
     assert.deepEqual(stateChanges(report), []);
     assert.equal(report.captures[0].status, 'changed');
+    // The same comment as without states, but for the timing and when it was written.
+    const steady = (body: string) => body.replace(/<details><summary>Capture settings and timing[\s\S]*?<\/details>\n/, '').replace(/generated [^<]*<\/sub>/, '').replace(/"createdAt":"[^"]*"/, '');
+    const off = await run('lead-color', { enabled: false });
+    assert.equal(steady(comment), steady(off.comment));
+    assert.doesNotMatch(comment, /hover|focus changes|· focus:/);
   });
 
   it('checks nothing when states are off', async () => {

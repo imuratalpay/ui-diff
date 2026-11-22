@@ -2,7 +2,7 @@ import { categorize } from './a11y.js';
 import { describeDependency, type DependencyChange } from './deps.js';
 import { onlyEffects } from './elements.js';
 import { captureLabel, describeCapture, notCheckedNotice, notCheckedReason, type CaptureResult, type Report, type SideTiming, type Timings } from './report.js';
-import { causeText, effectLines, isShownChange, measurements, pixelOnlyAreas, verdict, type EffectLine } from './verdict.js';
+import { causeText, effectLines, hasStateChanges, isShownChange, measurements, pixelOnlyAreas, verdict, type EffectLine } from './verdict.js';
 
 export { changeText } from './verdict.js';
 
@@ -107,7 +107,7 @@ function measuredSection(report: Report, opts: RenderOptions): string[] {
   for (const r of routes) {
     out.push(`**${code(r.route)}**`, '');
     const line = (row: (typeof r.rows)[number]): string[] => {
-      const lines = [`- ${elementLabel(row.name, row.selector)}: ${escapeText(row.text)} — ${row.where}`];
+      const lines = [`- ${elementLabel(row.name, row.selector)}${row.state ? ` · ${row.state}` : ''}: ${escapeText(row.text)} — ${row.where}`];
       const effects = effectLines(row);
       const text = (e: EffectLine) => `  - ${e.element ? `${elementLabel(e.element.name, e.element.selector)}: ` : ''}${escapeText(e.text)}`;
       const own = effects.filter((e) => !e.element);
@@ -176,11 +176,14 @@ function imagesSection(report: Report, captures: CaptureResult[], opts: RenderOp
   const out: string[] = [];
   const themes = report.themes.length;
   for (const c of captures) {
-    out.push(`${captureHeading(c, themes)} — ${describeCapture(c)}`);
+    const statesOnly = !isShownChange(c);
+    out.push(`${captureHeading(c, themes)} — ${statesOnly ? 'no change in the default state' : describeCapture(c)}`);
     if (c.urls.head) out.push(`<sub>head: ${c.urls.head}</sub>`);
     out.push('');
     const alt = `${captureLabel(c, themes)}: before, after and highlighted diff`;
-    if (c.images.focus.length && (opts.compact ?? 0) < 3) {
+    if (statesOnly) {
+      // Only hover or focus changed: the pairs below are the whole story.
+    } else if (c.images.focus.length && (opts.compact ?? 0) < 3) {
       c.images.focus.forEach((f, i) => {
         const pair = c.images.pairs?.[i];
         const blink = c.images.blinks?.[i];
@@ -203,6 +206,9 @@ function imagesSection(report: Report, captures: CaptureResult[], opts: RenderOp
       out.push(img(opts, opts.link(c.images.base), `${captureLabel(c, themes)} (base; missing on head)`, 480), '');
     } else if (c.images.head) {
       out.push(img(opts, opts.link(c.images.head), `${captureLabel(c, themes)} (head)`, 480), '');
+    }
+    for (const s of (opts.compact ?? 0) < 3 ? (c.images.states ?? []) : []) {
+      out.push(img(opts, opts.link(s.file), `${captureLabel(c, themes)}: ${s.name} on ${s.state}, before and after`), '', `<sub>${escapeText(`${s.name} · ${s.state}: ${s.text}`)}</sub>`, '');
     }
     const env = c.fingerprint?.differences ?? [];
     if (env.length) out.push(`> ⚠️ ${environmentWarning(env)}`, '');
@@ -577,9 +583,10 @@ function sections(report: Report, opts: RenderOptions): Section[] {
   const s = report.stats;
   const notChecked = notCheckedReason(report);
   const head: string[] = [stickyMarker(opts.id), `### ${opts.title} — ${verdict(report).text}`, ''];
+  const statesChanged = report.captures.filter(hasStateChanges).length;
   const counts = notChecked
     ? []
-    : [`${s.captures} capture${s.captures === 1 ? '' : 's'}`, s.changed && `${s.changed} changed`, s.added && `${s.added} new`, s.removed && `${s.removed} removed`, s.errors && `${s.errors} failed`, `${s.unchanged} unchanged`].filter(Boolean);
+    : [`${s.captures} capture${s.captures === 1 ? '' : 's'}`, s.changed && `${s.changed} changed`, s.added && `${s.added} new`, s.removed && `${s.removed} removed`, s.errors && `${s.errors} failed`, `${s.unchanged} unchanged`, statesChanged && `${statesChanged} with hover or focus changes`].filter(Boolean);
   head.push(
     `**Base** ${code(sideLabel(report.base))} → **Head** ${code(sideLabel(report.head))} · ${report.routes.length} route${report.routes.length === 1 ? '' : 's'} · ${report.viewports.join(', ')} · ${report.themes.join(', ')}`,
     '',
@@ -598,10 +605,12 @@ function sections(report: Report, opts: RenderOptions): Section[] {
   if (summary) out.push({ name: 'summary', priority: 60, lines: ['#### Summary', '', summary, ''] });
 
   const changed = report.captures.filter(isShownChange);
+  // Captures whose default state is unchanged are shown too when their hover or focus states changed.
+  const shown = report.captures.filter((c) => isShownChange(c) || c.images.states?.length);
   const failed = report.captures.filter((c) => c.status === 'error');
-  const unchanged = report.captures.filter((c) => c.status === 'unchanged');
+  const unchanged = report.captures.filter((c) => c.status === 'unchanged' && !c.images.states?.length);
   out.push({ name: 'measured changes', priority: 90, lines: measuredSection(report, opts) });
-  if (changed.length) out.push({ name: 'images', priority: 80, lines: ['#### Images', '', ...imagesSection(report, changed, opts)] });
+  if (shown.length) out.push({ name: 'images', priority: 80, lines: ['#### Images', '', ...imagesSection(report, shown, opts)] });
   out.push({ name: 'pixel changes with no measured change', priority: 70, lines: pixelOnlySection(report, opts) });
   if (failed.length) {
     const lines = ['#### Failed captures', '', ...failed.map((c) => `- ${code(captureLabel(c, report.themes.length))}: ${c.error ?? 'unknown error'}`), ''];
