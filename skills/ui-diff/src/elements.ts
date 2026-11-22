@@ -167,6 +167,9 @@ export interface ElementChange {
   inside?: number;
   /** For added and removed elements, which are causes themselves: "h12:added", "b3:removed". */
   id?: string;
+  /** Set for a change in the hover or keyboard focus state, with the crops of both sides in that state. */
+  state?: 'hover' | 'focus';
+  stateCrops?: { base: string; head: string };
   /** For sorting, biggest first; no unit. */
   magnitude: number;
   /** Matched confidently enough and its box overlaps changed pixels; false with the reasons when not. */
@@ -297,7 +300,7 @@ function weight(change: PropertyChange, colors: { before?: RGBAValue; after?: RG
  * of that cause), and unexplained otherwise, so they still count.
  */
 /** The element matches a focus selector or sits inside one that does. */
-function inFocus(list: StyledElement[], index: number): boolean {
+export function inFocus(list: StyledElement[], index: number): boolean {
   for (let i: number | null | undefined = index; i != null; i = list[i].parent) if (list[i].focus) return true;
   return false;
 }
@@ -607,8 +610,8 @@ const CONFIDENCE_RANK: Record<MatchConfidence, number> = { high: 3, medium: 2, l
  */
 export function verifyChanges(changes: ElementChange[], regions: Box[], minConfidence: MatchConfidence): void {
   for (const change of changes) {
-    // Effects stand or fall with their cause.
-    if (onlyEffects(change)) continue;
+    // Effects stand or fall with their cause; state changes are verified by their own crops.
+    if (onlyEffects(change) || change.state) continue;
     const reasons: string[] = [];
     if (change.confidence && CONFIDENCE_RANK[change.confidence] < CONFIDENCE_RANK[minConfidence]) reasons.push(`matched with ${change.confidence} confidence only (${change.reason})`);
     const box = change.deviceBox;

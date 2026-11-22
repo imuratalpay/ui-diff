@@ -45,6 +45,8 @@ describe('hover and focus states in a real run', { timeout: 600_000 }, () => {
     git('add', '-A');
     git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'base');
     branch('hover-color', { save: BASE_CSS.save.replace('.save:hover{background:#1d4ed8}', '.save:hover{background:#1e3a8a}') });
+    branch('focus-ring-removed', { save: BASE_CSS.save.replace('.save:focus-visible{outline:2px solid #2563eb;outline-offset:2px}', '.save:focus-visible{outline:none}') });
+    branch('lead-color', { page: BASE_CSS.page.replace('.lead{color:#475569}', '.lead{color:#dc2626}') });
   });
 
   after(() => rmSync(dir, { recursive: true, force: true }));
@@ -66,6 +68,26 @@ describe('hover and focus states in a real run', { timeout: 600_000 }, () => {
     const crops = readdirSync(path.join(outDir, 'states', 'head')).sort();
     assert.ok(crops.includes('settings__desktop__light__3-hover.png') && crops.includes('settings__desktop__light__3-focus.png'), crops.join(', '));
     assert.deepEqual(fp.differences, [], 'state counts are not compared between the sides');
+  });
+
+  const stateChanges = (report: Report) =>
+    report.captures.flatMap((c) => (c.styleDiff?.changes ?? []).filter((x) => x.state).map((x) => `${x.selector} · ${x.state}: ${x.changes.map((p) => `${p.property} ${p.before} → ${p.after}`).join(', ')}${x.verified ? '' : ' (unverified)'}`));
+
+  it('finds a hover-only color change, verified by its crops', async () => {
+    const { report } = await run('hover-color');
+    assert.deepEqual(stateChanges(report), ['button.save · hover: background #1d4ed8 → #1e3a8a']);
+    assert.equal(report.captures[0].status, 'unchanged', 'the default state did not change');
+  });
+
+  it('finds a focus ring that was removed', async () => {
+    const { report } = await run('focus-ring-removed');
+    assert.deepEqual(stateChanges(report), ['button.save · focus: outline 2px solid #2563eb, offset 2px → none']);
+  });
+
+  it('finds no state change when only a paragraph changed color', async () => {
+    const { report } = await run('lead-color');
+    assert.deepEqual(stateChanges(report), []);
+    assert.equal(report.captures[0].status, 'changed');
   });
 
   it('checks nothing when states are off', async () => {

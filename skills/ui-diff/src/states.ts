@@ -1,6 +1,10 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import pixelmatch from 'pixelmatch';
 import type { Page } from 'playwright';
+import { PNG } from 'pngjs';
+import { inFocus, type ChangeGroup, type ElementChange, type ElementMatch, type MatchConfidence, type PropertyChange } from './elements.js';
+import type { StyleSnapshot } from './tokens.js';
 
 export type StateName = 'hover' | 'focus';
 
@@ -280,4 +284,81 @@ export function stateCounts(s: Pick<StateCapture, 'checked' | 'skipped' | 'skipp
     .map(([reason, n]) => `${n} ${reason}`)
     .join(', ');
   return `${s.checked} checked, ${s.skipped} skipped${why ? ` (${why})` : ''}`;
+}
+
+const STATE_GROUP: Record<StateProperty, ChangeGroup> = { color: 'color', background: 'color', 'border-color': 'color', outline: 'shape', 'box-shadow': 'shape', transform: 'shape', opacity: 'color', 'text-decoration': 'type', cursor: 'layout' };
+
+/** Properties a screenshot cannot show: their changes are verified by the match alone. */
+const INVISIBLE = new Set<StateProperty>(['cursor']);
+
+/**
+ * Hover and focus changes of the elements matched between base and head: per state, every value
+ * that differs between the sides, unless both sides' state values are just their default values
+ * (the default state changed and the state does not set that property). Each changed element and
+ * state is one change, a cause, with the crops of both sides.
+ */
+export function diffStates(base: StateCapture | undefined, head: StateCapture | undefined, baseMap: StyleSnapshot, headMap: StyleSnapshot, match: ElementMatch, opts: { focusOnly?: boolean } = {}): ElementChange[] {
+  if (!base || !head) return [];
+  const out: ElementChange[] = [];
+  const defaults = (s: StateCapture, selector: string) => s.targets.find((t) => t.selector === selector)?.defaults;
+  for (const pair of match.pairs) {
+    const [b, h] = [baseMap.elements[pair.base], headMap.elements[pair.head]];
+    if (!b || !h || b.masked || h.masked) continue;
+    if (opts.focusOnly && !inFocus(headMap.elements, pair.head) && !inFocus(baseMap.elements, pair.base)) continue;
+    const [bd, hd] = [defaults(base, b.selector), defaults(head, h.selector)];
+    if (!bd || !hd) continue;
+    for (const state of ['hover', 'focus'] as const) {
+      const bs = base.shots.find((s) => s.selector === b.selector && s.state === state);
+      const hs = head.shots.find((s) => s.selector === h.selector && s.state === state);
+      if (!bs || !hs) continue;
+      const changes: PropertyChange[] = [];
+      for (const property of STATE_PROPERTIES) {
+        const [before, after] = [bs.styles[property], hs.styles[property]];
+        if (before === after || (before === bd[property] && after === hd[property])) continue;
+        changes.push({ property, group: STATE_GROUP[property], before, after, id: `h${pair.head}:${state}:${property}`, kind: 'cause' });
+      }
+      if (changes.length === 0) continue;
+      out.push({
+        kind: 'changed',
+        name: h.name ?? h.selector,
+        selector: h.selector,
+        base: pair.base,
+        head: pair.head,
+        confidence: pair.confidence,
+        reason: pair.reason,
+        changes,
+        box: h.box,
+        deviceBox: h.deviceBox,
+        magnitude: 10 + changes.length,
+        state,
+        stateCrops: { base: bs.file, head: hs.file },
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Marks each state change verified or not: matched with at least `minConfidence`, and its two
+ * crops differ, unless all it changed is something a screenshot cannot show (the cursor).
+ */
+export function verifyStateChanges(changes: ElementChange[], minConfidence: MatchConfidence, cropsDiffer: (base: string, head: string) => boolean): void {
+  const rank: Record<MatchConfidence, number> = { low: 0, medium: 1, high: 2 };
+  for (const change of changes) {
+    if (!change.state || !change.stateCrops) continue;
+    const reasons: string[] = [];
+    if (change.confidence && rank[change.confidence] < rank[minConfidence]) reasons.push(`matched with ${change.confidence} confidence only (${change.reason})`);
+    const visible = change.changes.some((p) => !INVISIBLE.has(p.property as StateProperty));
+    if (visible && !cropsDiffer(change.stateCrops.base, change.stateCrops.head)) reasons.push(`no changed pixels in its ${change.state} crops`);
+    change.verified = reasons.length === 0;
+    if (reasons.length) change.unverified = reasons;
+    else delete change.unverified;
+  }
+}
+
+/** Whether two state crops differ: a size change, or any pixel past `threshold` (pixelmatch). */
+export function cropsDiffer(baseFile: string, headFile: string, threshold: number): boolean {
+  const [a, b] = [PNG.sync.read(readFileSync(baseFile)), PNG.sync.read(readFileSync(headFile))];
+  if (a.width !== b.width || a.height !== b.height) return true;
+  return pixelmatch(a.data, b.data, undefined, a.width, a.height, { threshold, includeAA: false }) > 0;
 }

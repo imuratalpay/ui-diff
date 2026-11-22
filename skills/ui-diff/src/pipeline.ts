@@ -15,7 +15,7 @@ import { COLORS, composeRow, readPng, resizeToWidth, writePng, type Box } from '
 import { captureKey, keyId, type CaptureKey } from './key.js';
 import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
-import { stateCounts } from './states.js';
+import { cropsDiffer, diffStates, stateCounts, verifyStateChanges } from './states.js';
 import { measuredGroups } from './verdict.js';
 import { distinctFrames, encodeBlinkGif, encodeSideBySideGif, isAnimationPackage, motionWarning, recordFrames, stepTokens, touchesAnimation, writeFile, type RawFrame } from './motion.js';
 import { realpathIfExists } from './paths.js';
@@ -697,6 +697,9 @@ function styleDiffStage(captures: CaptureResult[], records: Map<string, CaptureR
     const kept = [...top, ...all.filter((x) => onlyEffects(x) && x.changes.every((p) => ids.has(p.cause))).slice(0, EFFECTS_KEPT)];
     const regions = c.diff ? explainRegions(c.diff.regions, c.diff.scale, head, base, kept) : [];
     verifyChanges(kept, c.status === 'changed' ? (c.diff?.regions ?? []) : [], cfg.styleDiff.minConfidence);
+    const states = diffStates(records.get(`base:${c.id}`)?.states, records.get(`head:${c.id}`)?.states, base, head, match, { focusOnly: c.regions?.focusOnly });
+    verifyStateChanges(states, cfg.styleDiff.minConfidence, (a, b) => cropsDiffer(a, b, cfg.diff.threshold));
+    kept.push(...states);
     const count = (level: string) => match.pairs.filter((p) => p.confidence === level).length;
     c.styleDiff = {
       matched: { high: count('high'), medium: count('medium'), low: count('low') },
