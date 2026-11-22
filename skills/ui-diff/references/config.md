@@ -231,6 +231,26 @@ biggest first, and names what each still pair shows.
 | `styleDiff.maxChanges` | `50` | Most element changes kept per capture in `report.json`; the comment says how many were left out. |
 | `styleDiff.minConfidence` | `medium` | Weakest match (`high`, `medium`, `low`) a measured change may have and still count as verified. |
 
+## Hover and focus states
+
+After the element map, each capture checks interactive elements (links, buttons, form fields,
+`summary`, `[role=button]`, `[tabindex]` of 0 or more, and anything a `focus` selector matches)
+in two more states on both sides: hovered with the real pointer, and reached with the Tab key so
+`:focus-visible` applies. Only visible elements inside the first viewport are checked, at most
+`states.maxElements` per page; the rest are counted as skipped. Each state records the element's
+color, background, border colors, outline, box shadow, transform, opacity, text decoration and
+cursor, and a crop around it. Base and head are paired through the element map, and a state
+counts as changed only where its values differ between the sides in a way the default state does
+not already explain. A page without state changes gets the same comment as before.
+
+| Key | Default | Notes |
+|---|---|---|
+| `states.enabled` | `true` | `false` skips hover and focus states. |
+| `states.hover` | `true` | Hover each element with the pointer. |
+| `states.focus` | `true` | Tab through the page and record each element when it gets keyboard focus. |
+| `states.maxElements` | `20` | Elements checked per page, in document order. |
+| `states.padding` | `12` | CSS px around the element in its state crops. |
+
 ## Fingerprint
 
 Each capture records what each side was rendered with, measured in the page: the commit, viewport

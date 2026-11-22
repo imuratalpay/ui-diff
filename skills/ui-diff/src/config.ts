@@ -333,6 +333,17 @@ export const ConfigSchema = z
       })
       .strict()
       .prefault({}),
+    states: z
+      .object({
+        enabled: z.boolean().default(true).describe('Capture interactive elements in their hover and keyboard focus states on both sides and compare them'),
+        hover: z.boolean().default(true).describe('Hover each element with the real pointer'),
+        focus: z.boolean().default(true).describe('Reach each element with the Tab key, so :focus-visible applies'),
+        maxElements: z.number().int().min(0).default(20).describe('Interactive elements checked per page, in document order; the rest are counted as skipped'),
+        padding: z.number().int().min(0).default(12).describe('CSS px around an element in its state crops, so focus rings and shadows show'),
+      })
+      .strict()
+      .prefault({})
+      .describe('Hover and focus states of links, buttons, form fields and other interactive elements'),
     fingerprint: z
       .object({
         dataLabel: z

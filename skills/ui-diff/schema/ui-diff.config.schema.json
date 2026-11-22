@@ -966,6 +966,43 @@
       },
       "additionalProperties": false
     },
+    "states": {
+      "description": "Hover and focus states of links, buttons, form fields and other interactive elements",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Capture interactive elements in their hover and keyboard focus states on both sides and compare them",
+          "type": "boolean"
+        },
+        "hover": {
+          "default": true,
+          "description": "Hover each element with the real pointer",
+          "type": "boolean"
+        },
+        "focus": {
+          "default": true,
+          "description": "Reach each element with the Tab key, so :focus-visible applies",
+          "type": "boolean"
+        },
+        "maxElements": {
+          "default": 20,
+          "description": "Interactive elements checked per page, in document order; the rest are counted as skipped",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "padding": {
+          "default": 12,
+          "description": "CSS px around an element in its state crops, so focus rings and shadows show",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
     "fingerprint": {
       "default": {},
       "type": "object",
