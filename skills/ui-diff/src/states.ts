@@ -339,8 +339,10 @@ export function diffStates(base: StateCapture | undefined, head: StateCapture | 
 }
 
 /**
- * Marks each state change verified or not: matched with at least `minConfidence`, and its two
- * crops differ, unless all it changed is something a screenshot cannot show (the cursor).
+ * Marks each state change verified or not: matched with at least `minConfidence`, and, for a match
+ * that is not high confidence, its two crops differ, unless all it changed is something a
+ * screenshot cannot show (the cursor). A high-confidence match with a measured value change is
+ * verified by the measurement itself, however close the two colors are.
  */
 export function verifyStateChanges(changes: ElementChange[], minConfidence: MatchConfidence, cropsDiffer: (base: string, head: string) => boolean): void {
   const rank: Record<MatchConfidence, number> = { low: 0, medium: 1, high: 2 };
@@ -349,15 +351,19 @@ export function verifyStateChanges(changes: ElementChange[], minConfidence: Matc
     const reasons: string[] = [];
     if (change.confidence && rank[change.confidence] < rank[minConfidence]) reasons.push(`matched with ${change.confidence} confidence only (${change.reason})`);
     const visible = change.changes.some((p) => !INVISIBLE.has(p.property as StateProperty));
-    if (visible && !cropsDiffer(change.stateCrops.base, change.stateCrops.head)) reasons.push(`no changed pixels in its ${change.state} crops`);
+    if (visible && change.confidence !== 'high' && !cropsDiffer(change.stateCrops.base, change.stateCrops.head)) reasons.push(`no changed pixels in its ${change.state} crops`);
     change.verified = reasons.length === 0;
     if (reasons.length) change.unverified = reasons;
     else delete change.unverified;
   }
 }
 
-/** Whether two state crops differ: a size change, or any pixel past `threshold` (pixelmatch). */
-export function cropsDiffer(baseFile: string, headFile: string, threshold: number): boolean {
+/**
+ * Whether two state crops differ: a size change, or any pixel past `threshold` (pixelmatch,
+ * anti-aliasing ignored). The default is exact: a hover often steps one shade (#2563eb → #1d4ed8),
+ * which the page diff's threshold counts as the same color.
+ */
+export function cropsDiffer(baseFile: string, headFile: string, threshold = 0): boolean {
   const [a, b] = [PNG.sync.read(readFileSync(baseFile)), PNG.sync.read(readFileSync(headFile))];
   if (a.width !== b.width || a.height !== b.height) return true;
   return pixelmatch(a.data, b.data, undefined, a.width, a.height, { threshold, includeAA: false }) > 0;

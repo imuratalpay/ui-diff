@@ -732,7 +732,7 @@ function styleDiffStage(captures: CaptureResult[], records: Map<string, CaptureR
     const regions = c.diff ? explainRegions(c.diff.regions, c.diff.scale, head, base, kept) : [];
     verifyChanges(kept, c.status === 'changed' ? (c.diff?.regions ?? []) : [], cfg.styleDiff.minConfidence);
     const states = diffStates(records.get(`base:${c.id}`)?.states, records.get(`head:${c.id}`)?.states, base, head, match, { focusOnly: c.regions?.focusOnly });
-    verifyStateChanges(states, cfg.styleDiff.minConfidence, (a, b) => cropsDiffer(a, b, cfg.diff.threshold));
+    verifyStateChanges(states, cfg.styleDiff.minConfidence, (a, b) => cropsDiffer(a, b));
     kept.push(...states);
     const count = (level: string) => match.pairs.filter((p) => p.confidence === level).length;
     c.styleDiff = {

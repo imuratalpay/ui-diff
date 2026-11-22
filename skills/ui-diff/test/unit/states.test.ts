@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { PNG } from 'pngjs';
 import { describe, it } from 'node:test';
 import { matchElements, verifyChanges, type ElementChange } from '../../src/elements.js';
-import { diffStates, stateCounts, verifyStateChanges, type StateCapture, type StateStyles } from '../../src/states.js';
+import { cropsDiffer, diffStates, stateCounts, verifyStateChanges, type StateCapture, type StateStyles } from '../../src/states.js';
 import type { StyledElement, StyleSnapshot } from '../../src/tokens.js';
 import { checkSummary } from '../../src/check.js';
 import { renderComment } from '../../src/markdown.js';
@@ -61,18 +65,39 @@ describe('hover and focus state diff', () => {
     assert.deepEqual(diffStates(undefined, side('head', same), MAP, MAP, matchElements(MAP.elements, MAP.elements)), []);
   });
 
-  it('verifies a state change by its match and its crops, except for the cursor, which a screenshot cannot show', () => {
+  it('needs pixel evidence only from matches that are not high confidence, and none for the cursor', () => {
     const changes = [
-      ...diff(side('base', { 'button.save': { hover: { background: '#1d4ed8' } } }), side('head', { 'button.save': { hover: { background: '#1e3a8a' } } })),
+      ...diff(side('base', { 'button.save': { hover: { background: '#2563eb' } } }), side('head', { 'button.save': { hover: { background: '#1d4ed8' } } })),
       ...diff(side('base', { 'a.cancel': { hover: { cursor: 'pointer' } } }), side('head', { 'a.cancel': { hover: { cursor: 'default' } } })),
     ];
-    verifyStateChanges(changes, 'medium', () => false);
-    assert.deepEqual(changes.map((c) => [c.name, c.verified, c.unverified]), [
-      ["button 'Save'", false, ['no changed pixels in its hover crops']],
-      ["link 'Cancel'", true, undefined],
+    const medium = { ...changes[0], confidence: 'medium' as const, reason: 'same text', changes: [...changes[0].changes] };
+    const all = [...changes, medium];
+    verifyStateChanges(all, 'medium', () => false);
+    assert.deepEqual(all.map((c) => [c.name, c.confidence, c.verified, c.unverified]), [
+      ["button 'Save'", 'high', true, undefined],
+      ["link 'Cancel'", 'high', true, undefined],
+      ["button 'Save'", 'medium', false, ['no changed pixels in its hover crops']],
     ]);
-    verifyStateChanges(changes, 'medium', () => true);
-    assert.equal(changes[0].verified, true);
+    verifyStateChanges(all, 'medium', () => true);
+    assert.equal(medium.verified, true);
+  });
+
+  it('compares state crops exactly, so a one-shade hover step counts as changed', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'ui-diff-crops-'));
+    try {
+      const fill = (file: string, rgb: [number, number, number]) => {
+        const png = new PNG({ width: 40, height: 20 });
+        for (let i = 0; i < png.data.length; i += 4) png.data.set([...rgb, 255], i);
+        writeFileSync(path.join(dir, file), PNG.sync.write(png));
+        return path.join(dir, file);
+      };
+      const [base, head, same] = [fill('a.png', [0x25, 0x63, 0xeb]), fill('b.png', [0x1d, 0x4e, 0xd8]), fill('c.png', [0x25, 0x63, 0xeb])];
+      assert.equal(cropsDiffer(base, head), true, '#2563eb → #1d4ed8');
+      assert.equal(cropsDiffer(base, head, 0.1), false, 'the threshold of the page diff is too loose for it');
+      assert.equal(cropsDiffer(base, same), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('is left alone by the default-state verification', () => {

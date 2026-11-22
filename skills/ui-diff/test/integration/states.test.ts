@@ -22,7 +22,7 @@ const HTML = `<!doctype html><html><head><link rel="stylesheet" href="/app.css">
 const BASE_CSS = {
   page: 'body{margin:0;font:16px Arial,sans-serif;color:#0f172a} header{padding:16px 24px;border-bottom:1px solid #e5e7eb} main{padding:24px} .lead{color:#475569} .far{margin-top:1200px}',
   input: 'input{border:1px solid #cbd5e1;padding:6px 8px;border-radius:4px} input:focus-visible{outline:2px solid #2563eb}',
-  save: '.save{background:#2563eb;color:#fff;border:0;padding:8px 14px;border-radius:6px} .save:hover{background:#1d4ed8} .save:focus-visible{outline:2px solid #2563eb;outline-offset:2px}',
+  save: '.save{background:#2563eb;color:#fff;border:0;padding:8px 14px;border-radius:6px} .save:hover{background:#2563eb} .save:focus-visible{outline:2px solid #2563eb;outline-offset:2px}',
   links: 'a{color:#2563eb} a:hover{text-decoration:underline} .actions{margin-top:16px}',
 };
 const css = (over: Partial<typeof BASE_CSS> = {}) => Object.values({ ...BASE_CSS, ...over }).join('\n');
@@ -44,7 +44,8 @@ describe('hover and focus states in a real run', { timeout: 600_000 }, () => {
     writeFileSync(path.join(dir, 'app.css'), css());
     git('add', '-A');
     git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'base');
-    branch('hover-color', { save: BASE_CSS.save.replace('.save:hover{background:#1d4ed8}', '.save:hover{background:#1e3a8a}') });
+    // One shade darker on hover, as design systems step it: small enough to pass a loose pixel threshold.
+    branch('hover-color', { save: BASE_CSS.save.replace('.save:hover{background:#2563eb}', '.save:hover{background:#1d4ed8}') });
     branch('focus-ring-removed', { save: BASE_CSS.save.replace('.save:focus-visible{outline:2px solid #2563eb;outline-offset:2px}', '.save:focus-visible{outline:none}') });
     branch('lead-color', { page: BASE_CSS.page.replace('.lead{color:#475569}', '.lead{color:#dc2626}') });
   });
@@ -75,11 +76,11 @@ describe('hover and focus states in a real run', { timeout: 600_000 }, () => {
 
   it('finds a hover-only color change, verified by its crops, and reports it as a change of its element', async () => {
     const { outDir, report, comment } = await run('hover-color');
-    assert.deepEqual(stateChanges(report), ['button.save · hover: background #1d4ed8 → #1e3a8a']);
+    assert.deepEqual(stateChanges(report), ['button.save · hover: background #2563eb → #1d4ed8']);
     assert.equal(report.captures[0].status, 'unchanged', 'the default state did not change');
     assert.equal(comment.split('\n')[1], '### UI diff (local preview) — 1 measured change on 1 route');
-    assert.match(comment, /\n- `button 'Save'` \(`button\.save`\) · hover: background #1d4ed8 → #1e3a8a — desktop\n/);
-    assert.match(comment, /\*\*`\/`\*\* · desktop — no change in the default state\n\n<img src="compare\/settings__desktop__light__hover-1\.png" alt="\/ · desktop: button 'Save' on hover, before and after">\n\n<sub>button 'Save' · hover: background #1d4ed8 → #1e3a8a<\/sub>/);
+    assert.match(comment, /\n- `button 'Save'` \(`button\.save`\) · hover: background #2563eb → #1d4ed8 — desktop\n/);
+    assert.match(comment, /\*\*`\/`\*\* · desktop — no change in the default state\n\n<img src="compare\/settings__desktop__light__hover-1\.png" alt="\/ · desktop: button 'Save' on hover, before and after">\n\n<sub>button 'Save' · hover: background #2563eb → #1d4ed8<\/sub>/);
     assert.ok(existsSync(path.join(outDir, 'compare', 'settings__desktop__light__hover-1.png')));
     assert.deepEqual(report.measured!.map((g) => [g.kind, g.state, g.property]), [['cause', 'hover', 'background']]);
   });
