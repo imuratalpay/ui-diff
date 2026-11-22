@@ -13,6 +13,7 @@ import type { SideFingerprint } from './report.js';
 import type { SideName } from './sides.js';
 import { runSteps } from './steps.js';
 import { collectStyles } from './styles.js';
+import { captureStates, type StateCapture } from './states.js';
 import { changedRegions, type UnsettledRegion } from './unsettled.js';
 
 export interface CaptureTarget {
@@ -24,6 +25,8 @@ export interface CaptureTarget {
   url: string;
   file: string;
   styles?: { file: string; extraColors: string[] };
+  /** Hover and focus states: where their crops go. Needs the element map (styles) to pair them. */
+  states?: { dir: string };
   a11y?: boolean;
   focusOrder?: boolean;
 }
@@ -55,7 +58,10 @@ export interface CaptureRecord {
   regionHits?: { focus: Record<string, number>; ignore: Record<string, number> };
   /** Device-px boxes of the elements matching a focus selector. */
   focusBoxes?: Box[];
-  /** Time spent on the style snapshot and on axe plus focus order, within durationMs. */
+  /** Hover and focus states of the page's interactive elements. */
+  states?: StateCapture;
+  /** Time spent on the style snapshot, on hover and focus states, and on axe plus focus order, within durationMs. */
+  statesMs?: number;
   stylesMs?: number;
   a11yMs?: number;
   axe?: AxeViolation[];
@@ -394,6 +400,23 @@ export class CaptureSession {
     return { buffer: previous, stable, attempts, truncated, unsettled, frozeTimers };
   }
 
+  /** A viewport area, shot like the full capture: same masks, hidden selectors and frozen animations. */
+  private shootClip(page: Page, route: ResolvedRoute, clip: { x: number; y: number; width: number; height: number }): Promise<Buffer> {
+    const { cfg } = this.opts;
+    const masks = [...cfg.capture.mask, ...route.mask, ...cfg.ignore, ...route.ignore];
+    const hidden = [...cfg.capture.hide, ...route.hide, ...(cfg.capture.hideDevOverlays ? DEV_OVERLAY_SELECTORS : [])];
+    return page.screenshot({
+      clip,
+      animations: cfg.freeze.animations ? 'disabled' : 'allow',
+      caret: 'hide',
+      scale: 'device',
+      mask: masks.map((s) => page.locator(s)),
+      maskColor: cfg.capture.maskColor,
+      style: hideCss(hidden),
+      timeout: cfg.capture.timeoutMs,
+    });
+  }
+
   async capture(target: CaptureTarget): Promise<CaptureRecord> {
     const { cfg } = this.opts;
     const started = Date.now();
@@ -437,6 +460,23 @@ export class CaptureSession {
         if (capped) record.stylesCapped = true;
         record.stylesCount = snapshot.elements.length;
         record.stylesMs = Math.round(performance.now() - stylesStart);
+      }
+      if (target.states && target.styles) {
+        const statesStart = performance.now();
+        const masked = [...cfg.ignore, ...target.route.ignore, ...cfg.capture.mask, ...target.route.mask, ...cfg.capture.hide, ...target.route.hide, ...(cfg.capture.hideDevOverlays ? DEV_OVERLAY_SELECTORS : [])];
+        record.states = await captureStates(page, {
+          hover: cfg.states.hover,
+          focus: cfg.states.focus,
+          maxElements: cfg.states.maxElements,
+          padding: cfg.states.padding,
+          focusSelectors: [...cfg.focus, ...target.route.focus],
+          masked,
+          fonts: cfg.freeze.fonts,
+          dir: target.states.dir,
+          id: target.id,
+          shoot: (clip) => this.shootClip(page, target.route, clip),
+        });
+        record.statesMs = Math.round(performance.now() - statesStart);
       }
       if (shot.frozeTimers) await page.context().clock.resume().catch(() => undefined);
       const a11yStart = performance.now();

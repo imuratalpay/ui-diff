@@ -69,6 +69,8 @@ export interface SideFingerprint {
   data: string;
   /** Base side only: whether its captures came from the base cache, and the key. */
   cache?: { hit: boolean; key: string };
+  /** Interactive elements checked in hover and focus states, and those skipped with why. Not compared between sides. */
+  states?: { checked: number; skipped: number; skippedWhy: Record<string, number> };
 }
 
 /** The base cache this run used (worktree base only). */

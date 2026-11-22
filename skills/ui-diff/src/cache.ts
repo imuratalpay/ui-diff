@@ -51,7 +51,7 @@ function fileFields(record: CaptureRecord): Array<'file' | 'stylesFile'> {
 }
 
 /**
- * The entry for `key` with its files restored under `outDir` (captures/base, styles/base), or
+ * The entry for `key` with its files restored under `outDir` (captures/base, styles/base, states/base), or
  * undefined. Only a complete entry counts: a missing manifest, another key, a failed record or a
  * missing file is a miss, never a partial reuse.
  */
@@ -69,6 +69,7 @@ export function restoreBaseCache(cacheDir: string, key: string, outDir: string):
   for (const record of entry.records) {
     if (!record.ok) return undefined;
     for (const field of fileFields(record)) if (!existsSync(path.join(dir, record[field]!))) return undefined;
+    for (const shot of record.states?.shots ?? []) if (!existsSync(path.join(dir, shot.file))) return undefined;
   }
   const records = entry.records.map((record) => {
     const restored: CaptureRecord = { ...record };
@@ -77,6 +78,17 @@ export function restoreBaseCache(cacheDir: string, key: string, outDir: string):
       mkdirSync(path.dirname(target), { recursive: true });
       copyFileSync(path.join(dir, record[field]!), target);
       restored[field] = target;
+    }
+    if (record.states) {
+      restored.states = {
+        ...record.states,
+        shots: record.states.shots.map((shot) => {
+          const target = path.join(outDir, 'states', 'base', path.basename(shot.file));
+          mkdirSync(path.dirname(target), { recursive: true });
+          copyFileSync(path.join(dir, shot.file), target);
+          return { ...shot, file: target };
+        }),
+      };
     }
     return restored;
   });
@@ -100,6 +112,17 @@ export function storeBaseCache(cacheDir: string, entry: BaseCacheEntry, keep = 1
       mkdirSync(path.join(tmp, path.dirname(name)), { recursive: true });
       copyFileSync(record[field]!, path.join(tmp, name));
       stored[field] = name;
+    }
+    if (record.states) {
+      mkdirSync(path.join(tmp, 'states'), { recursive: true });
+      stored.states = {
+        ...record.states,
+        shots: record.states.shots.map((shot) => {
+          const name = `states/${path.basename(shot.file)}`;
+          copyFileSync(shot.file, path.join(tmp, name));
+          return { ...shot, file: name };
+        }),
+      };
     }
     return stored;
   });

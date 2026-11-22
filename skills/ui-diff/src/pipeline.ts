@@ -15,6 +15,7 @@ import { COLORS, composeRow, readPng, resizeToWidth, writePng, type Box } from '
 import { captureKey, keyId, type CaptureKey } from './key.js';
 import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { renderComment } from './markdown.js';
+import { stateCounts } from './states.js';
 import { measuredGroups } from './verdict.js';
 import { distinctFrames, encodeBlinkGif, encodeSideBySideGif, isAnimationPackage, motionWarning, recordFrames, stepTokens, touchesAnimation, writeFile, type RawFrame } from './motion.js';
 import { realpathIfExists } from './paths.js';
@@ -62,7 +63,7 @@ export interface RunOutcome {
 
 const FAILED_MARKER = 'last-run-failed.json';
 // comment.preview.md comes from `render`; a new successful run makes it stale, so it is dropped with the rest.
-const OUTPUT_ENTRIES = ['captures', 'diff', 'compare', 'variants', 'motion', 'styles', 'report.json', 'comment.local.md', 'comment.md', 'comment.preview.md', 'summary.auto.md', FAILED_MARKER];
+const OUTPUT_ENTRIES = ['captures', 'diff', 'compare', 'variants', 'motion', 'styles', 'states', 'report.json', 'comment.local.md', 'comment.md', 'comment.preview.md', 'summary.auto.md', FAILED_MARKER];
 
 export interface RunFailure {
   failedAt: string;
@@ -321,7 +322,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
     booted = await bootStage(sides, detected, prepared, { cfg, runStart, opts, outDir });
     const { base, head } = booted;
     const captureStart = performance.now();
-    const records = await captureStage(booted, prepared, outDir);
+    const records = await captureStage(booted, prepared, outDir, cfg);
     const captureMs = since(captureStart);
     const baseCache = booted.cache ? storeOrReport(booted.cache, base, records, cfg, runStart) : undefined;
     // Records restored from the base cache were not captured by this run.
@@ -583,6 +584,7 @@ function baseCaptureConfig(cfg: ResolvedConfig, prepared: Prepared): unknown {
     capture: cfg.capture,
     freeze: cfg.freeze,
     styles: prepared.stylesOn,
+    states: prepared.stylesOn && cfg.states.enabled ? cfg.states : false,
     tokens: prepared.tokens ? { colors: tokenColorStrings(prepared.tokens.set), ignore: cfg.tokens.ignoreSelectors } : null,
     a11y: { tags: cfg.a11y.tags, rules: cfg.a11y.rules, maxTabStops: cfg.a11y.maxTabStops },
     app: { startCommand: cfg.startCommand, buildCommand: cfg.buildCommand, install: cfg.install, dirRel: cfg.dirRel, cwd: cfg.cwd, baseUrl: cfg.baseUrl, readyPath: cfg.readyPath, env: cfg.env, copied },
@@ -606,7 +608,7 @@ function storeOrReport(cache: NonNullable<Booted['cache']>, base: Side, records:
 }
 
 /** Screenshots (and style, axe and focus-order data) of every plan on both sides, keyed `<side>:<id>`. */
-async function captureStage(booted: Booted, prepared: Prepared, outDir: string): Promise<Map<string, CaptureRecord>> {
+async function captureStage(booted: Booted, prepared: Prepared, outDir: string, cfg: ResolvedConfig): Promise<Map<string, CaptureRecord>> {
   const { plans, stylesOn, tokens } = prepared;
   const records = new Map<string, CaptureRecord>();
   const extraColors = tokens ? tokenColorStrings(tokens.set) : [];
@@ -626,6 +628,7 @@ async function captureStage(booted: Booted, prepared: Prepared, outDir: string):
         url: routeUrl(side.url, plan.route.path, plan.theme.query),
         file: path.join(outDir, 'captures', side.name, `${plan.id}.png`),
         styles: stylesOn ? { file: path.join(outDir, 'styles', side.name, `${plan.id}.json`), extraColors } : undefined,
+        states: stylesOn && cfg.states.enabled ? { dir: path.join(outDir, 'states', side.name) } : undefined,
         a11y: plan.a11y,
         focusOrder: plan.focus,
       };
@@ -634,6 +637,7 @@ async function captureStage(booted: Booted, prepared: Prepared, outDir: string):
       if (!record.ok) log.warn(`${side.name} ${plan.id}: ${record.error}`);
       else if (!record.stable || record.unsettled) log.warn(unsettledWarning(`${side.name} ${plan.id}`, record));
       for (const action of record.skippedActions ?? []) log.warn(`${plan.id}: ${skippedActionWarning(side.name, action)}`);
+      if (record.states) log.info(`${side.name} ${plan.id}: hover and focus states: ${stateCounts(record.states)}`);
       records.set(`${side.name}:${plan.id}`, record);
     }
   }
@@ -766,9 +770,12 @@ async function extrasStage(
 function captureFingerprint(baseRec: CaptureRecord, headRec: CaptureRecord, ctx: { base: Side; head: Side; cfg: ResolvedConfig; cache?: BaseCacheInfo }): CaptureFingerprint | undefined {
   const side = (rec: CaptureRecord, s: Side): SideFingerprint | undefined =>
     rec.environment ? { ...(s.sha ? { commit: s.sha } : {}), ...rec.environment, data: ctx.cfg.fingerprint.dataLabel ?? 'not declared' } : undefined;
+  const states = (rec: CaptureRecord) => (rec.states ? { states: { checked: rec.states.checked, skipped: rec.states.skipped, skippedWhy: rec.states.skippedWhy } } : {});
   const base = side(baseRec, ctx.base);
+  if (base) Object.assign(base, states(baseRec));
   if (base && ctx.cache) base.cache = { hit: ctx.cache.hit, key: ctx.cache.key };
   const head = side(headRec, ctx.head);
+  if (head) Object.assign(head, states(headRec));
   if (!base && !head) return undefined;
   return { base, head, differences: base && head ? fingerprintDifferences(base, head) : [] };
 }
