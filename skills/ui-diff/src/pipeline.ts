@@ -6,21 +6,22 @@ import { diffFocusOrder, diffViolations, type A11yIssue } from './a11y.js';
 import { baseCacheKey, restoreBaseCache, storeBaseCache, type BaseCacheEntry, type BaseCacheKey } from './cache.js';
 import { resolveAuth, sanitizeUrl, type ResolvedAuth } from './auth.js';
 import { CaptureSession, ensureBrowser, frozenTime, launchBrowser, resolveBrowser, routeUrl, type CaptureRecord, type CaptureTarget } from './capture.js';
-import { parseVariantFlag, pickThemes, pickViewports, resolveRoute, type ResolvedConfig, type ResolvedRoute, type Step, type ThemeConfig, type VariantSpec, type ViewportConfig } from './config.js';
+import { parseVariantFlag, pickThemes, pickViewports, resolveRoute, type FlowCheckpoint, type ResolvedConfig, type ResolvedFlow, type ResolvedRoute, type Step, type ThemeConfig, type VariantSpec, type ViewportConfig } from './config.js';
 import { detectChanges, resolveBaseRef, type DetectResult } from './detect.js';
 import { blinkFrames, clipToFocus, composeCompare, composePair, diffPngs, focusBoxes } from './diff.js';
-import { diffElements, explainRegions, matchElements, onlyEffects, verifyChanges } from './elements.js';
+import { diffElements, explainRegions, matchElements, onlyEffects, verifyChanges, type ElementChange } from './elements.js';
+import { describeFlowStep, flowOutcome, stopReason } from './flows.js';
 import { changedLines, git, gitCommonDir, mergeBase, revParse, shortSha } from './git.js';
 import { measureText } from './font.js';
 import { COLORS, composeRow, padTo, readPng, resizeToWidth, writePng, type Box } from './image.js';
 import { captureKey, keyId, type CaptureKey } from './key.js';
 import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
-import { renderComment } from './markdown.js';
+import { duration, renderComment } from './markdown.js';
 import { cropsDiffer, diffStates, stateCounts, verifyStateChanges } from './states.js';
 import { measuredGroups } from './verdict.js';
 import { distinctFrames, encodeBlinkGif, encodeSideBySideGif, isAnimationPackage, motionWarning, recordFrames, stepTokens, touchesAnimation, writeFile, type RawFrame } from './motion.js';
 import { realpathIfExists } from './paths.js';
-import { autoSummary, comparability, computeStats, fingerprintDifferences, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureFingerprint, type CaptureResult, type MotionResult, type Report, type BaseCacheInfo, type SideFingerprint, type SideSummary, type Timings, type VariantGroup } from './report.js';
+import { autoSummary, comparability, computeStats, fingerprintDifferences, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureFingerprint, type CaptureResult, type FlowResult, type MotionResult, type Report, type BaseCacheInfo, type SideFingerprint, type SideSummary, type Timings, type VariantGroup } from './report.js';
 import { killAllServers, serverLogWarnings } from './server.js';
 import { SideManager, sideLabel, type Side, type SideRequest } from './sides.js';
 import { describeStep } from './steps.js';
@@ -181,6 +182,8 @@ interface Plan {
   id: string;
   a11y: boolean;
   focus: boolean;
+  /** A checkpoint of a flow; `run` groups the checkpoints of one replay (flow, viewport, theme). */
+  flow?: { def: ResolvedFlow; checkpoint: FlowCheckpoint; run: string };
 }
 
 /** Where base and head come from, after detection. */
@@ -205,6 +208,8 @@ interface Prepared {
   stylesOn: boolean;
   auth?: ResolvedAuth;
   detection?: DetectResult;
+  /** Flows not run because of flowLimits, for the report's warnings. */
+  flowNotes: string[];
 }
 
 interface Booted {
@@ -326,11 +331,14 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
     const records = await captureStage(booted, prepared, outDir, cfg);
     const captureMs = since(captureStart);
     const baseCache = booted.cache ? storeOrReport(booted.cache, base, records, cfg, runStart) : undefined;
-    // Records restored from the base cache were not captured by this run.
-    const taken = new Map([...records].filter(([, r]) => !(booted!.cache?.entry && r.side === 'base')));
+    // Records restored from the base cache were not captured by this run, nor were checkpoints a flow never reached.
+    const taken = new Map([...records].filter(([, r]) => !(booted!.cache?.entry && r.side === 'base') && r.flow?.reached !== false));
     const diffStart = performance.now();
     const captures = diffStage(prepared.plans, records, { base, head, cfg, outDir, cache: baseCache });
     const diffMs = since(diffStart);
+    const flows = flowResults(prepared.plans, records, captures, { cachedBase: Boolean(booted.cache?.entry), themes: prepared.themes.length });
+    warnings.push(...prepared.flowNotes, ...flows.warnings);
+    const flowsMs = flows.flows.reduce((n, f) => n + (f.base.cached ? 0 : f.base.ms) + f.head.ms, 0);
     const styleDiffStart = performance.now();
     if (cfg.styleDiff.enabled) {
       styleDiffStage(captures, records, cfg);
@@ -347,6 +355,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       head: sideSummary(head),
       captures,
       ...extras,
+      ...(flows.flows.length ? { flows: flows.flows } : {}),
       ...(baseCache ? { baseCache } : {}),
       ...reportRegions(cfg, prepared.routes),
       ...comparability(captures),
@@ -362,7 +371,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       browserMs: booted.browserMs,
       capture: { ms: captureMs, count: taken.size, slowest: slowestCapture(taken) },
       diffMs,
-      extras: { ...extrasTimings, ...(cfg.styleDiff.enabled ? { styleDiffMs, elementMapMs: [...records.values()].reduce((n, r) => n + (r.stylesMs ?? 0), 0) } : {}) },
+      extras: { ...extrasTimings, ...(cfg.styleDiff.enabled ? { styleDiffMs, elementMapMs: [...records.values()].reduce((n, r) => n + (r.stylesMs ?? 0), 0) } : {}), ...(flows.flows.length ? { flowsMs } : {}) },
     };
     return writeOutputs(report, outDir, false);
   } finally {
@@ -432,13 +441,73 @@ async function prepareStage(opts: RunOptions, detected: Detected, runStart: Date
   };
   const motionOn = cfg.motion.enabled || Boolean(opts.motion);
   const a11yOn = cfg.a11y.enabled || Boolean(opts.a11y);
-  if (routes.length === 0) return { routes, viewports, themes, plans: [], reportBase, motionOn, a11yOn, stylesOn: false };
+  if (routes.length === 0) return { routes, viewports, themes, plans: [], reportBase, motionOn, a11yOn, stylesOn: false, flowNotes: [] };
 
   const tokens = cfg.tokens.enabled || Boolean(opts.tokens?.length) ? await loadTokens(opts) : undefined;
   const previewUrls = [detected.baseUrl, detected.headUrl].filter((u): u is string => Boolean(u));
   const auth = previewUrls.length || cfg.auth?.origins?.length ? resolveAuth(cfg.auth, previewUrls) : undefined;
   if (cfg.auth && !auth && previewUrls.length === 0) log.debug('auth configured but both sides run locally; credentials not used');
-  return { routes, viewports, themes, plans: planCaptures(cfg, routes, viewports, themes, a11yOn), reportBase, motionOn, a11yOn, tokens, stylesOn: Boolean(tokens) || Boolean(opts.collectStyles) || cfg.styleDiff.enabled || routes.some((r) => regionsOf(cfg, r).focus.length + regionsOf(cfg, r).ignore.length > 0), auth, detection };
+  const flows = planFlows(cfg, routes, viewports, themes);
+  return {
+    routes,
+    viewports,
+    themes,
+    plans: [...planCaptures(cfg, routes, viewports, themes, a11yOn), ...flows.plans],
+    reportBase,
+    motionOn,
+    a11yOn,
+    tokens,
+    stylesOn: Boolean(tokens) || Boolean(opts.collectStyles) || cfg.styleDiff.enabled || routes.some((r) => regionsOf(cfg, r).focus.length + regionsOf(cfg, r).ignore.length > 0),
+    auth,
+    detection,
+    flowNotes: flows.notes,
+  };
+}
+
+/**
+ * A plan per checkpoint of every flow whose route is captured, at the route's viewports and themes
+ * (or the flow's own). At most flowLimits.maxFlows flows, in config order, and none longer than
+ * flowLimits.maxSteps; those left out are named in the notes.
+ */
+function planFlows(cfg: ResolvedConfig, routes: ResolvedRoute[], viewports: ViewportConfig[], themes: ThemeConfig[]): { plans: Plan[]; notes: string[] } {
+  const notes: string[] = [];
+  const runnable: Array<{ flow: ResolvedFlow; route: ResolvedRoute }> = [];
+  for (const flow of cfg.flows) {
+    const route = routes.find((r) => r.path === flow.route);
+    if (!route) {
+      log.info(`flow '${flow.name}': ${flow.route} is not captured in this run, so the flow is not run`);
+      continue;
+    }
+    if (flow.steps.length > cfg.flowLimits.maxSteps) {
+      notes.push(`flow '${flow.name}' has ${flow.steps.length} steps, more than flowLimits.maxSteps (${cfg.flowLimits.maxSteps}), so it was not run`);
+      continue;
+    }
+    runnable.push({ flow, route });
+  }
+  const over = runnable.slice(cfg.flowLimits.maxFlows);
+  if (over.length) notes.push(`${over.length} flow${over.length === 1 ? '' : 's'} over flowLimits.maxFlows (${cfg.flowLimits.maxFlows}) not run: ${over.map((f) => `'${f.flow.name}'`).join(', ')}`);
+  const plans: Plan[] = [];
+  for (const { flow, route } of runnable.slice(0, cfg.flowLimits.maxFlows)) {
+    const vNames = flow.viewports ?? route.viewports;
+    const tNames = flow.themes ?? route.themes;
+    for (const viewport of vNames ? viewports.filter((v) => vNames.includes(v.name)) : viewports) {
+      for (const theme of tNames ? themes.filter((t) => tNames.includes(t.name)) : themes) {
+        const run = `${captureId(route, viewport, theme)}__flow-${flow.slug}`;
+        for (const checkpoint of flow.checkpoints) {
+          const key = captureKey(route, viewport, theme, undefined, { name: flow.slug, checkpoint: checkpoint.slug });
+          plans.push({ route, viewport, theme, key, id: keyId(key), a11y: false, focus: false, flow: { def: flow, checkpoint, run } });
+        }
+      }
+    }
+  }
+  return { plans, notes };
+}
+
+/** Flow plans by replay, in plan order. */
+function flowRuns(plans: Plan[]): Plan[][] {
+  const runs = new Map<string, Plan[]>();
+  for (const p of plans) if (p.flow) runs.set(p.flow.run, [...(runs.get(p.flow.run) ?? []), p]);
+  return [...runs.values()];
 }
 
 async function loadTokens(opts: RunOptions): Promise<{ set: TokenSet; files: string[] }> {
@@ -583,8 +652,24 @@ function baseCaptureConfig(cfg: ResolvedConfig, prepared: Prepared): unknown {
     const file = path.join(cfg.dir, f);
     return [f, existsSync(file) ? createHash('sha256').update(readFileSync(file)).digest('hex') : null];
   });
+  const flows = prepared.plans.some((p) => p.flow);
   return {
-    plans: prepared.plans.map((p) => ({ id: p.id, route: p.route.path, actions: p.route.actions, waitFor: p.route.waitFor, mask: p.route.mask, hide: p.route.hide, fullPage: p.route.fullPage, viewport: p.viewport, theme: p.theme, a11y: p.a11y, focusOrder: p.focus, regions: regionsOf(cfg, p.route) })),
+    plans: prepared.plans.map((p) => ({
+      id: p.id,
+      route: p.route.path,
+      actions: p.route.actions,
+      waitFor: p.route.waitFor,
+      mask: p.route.mask,
+      hide: p.route.hide,
+      fullPage: p.route.fullPage,
+      viewport: p.viewport,
+      theme: p.theme,
+      a11y: p.a11y,
+      focusOrder: p.focus,
+      regions: regionsOf(cfg, p.route),
+      flow: p.flow && { steps: p.flow.def.steps, checkpoint: p.flow.checkpoint.slug },
+    })),
+    ...(flows ? { flowStepTimeoutMs: cfg.flowLimits.stepTimeoutMs } : {}),
     capture: cfg.capture,
     freeze: cfg.freeze,
     styles: prepared.stylesOn,
@@ -620,24 +705,25 @@ async function captureStage(booted: Booted, prepared: Prepared, outDir: string, 
   const cached = booted.cache?.entry;
   for (const record of cached?.records ?? []) records.set(`base:${record.id}`, record);
   const sides = cached ? [booted.head] : [booted.base, booted.head];
-  for (const plan of plans) {
+  const target = (plan: Plan, side: Side): CaptureTarget => ({
+    id: plan.id,
+    side: side.name,
+    route: plan.route,
+    viewport: plan.viewport,
+    theme: plan.theme,
+    url: routeUrl(side.url, plan.route.path, plan.theme.query),
+    file: path.join(outDir, 'captures', side.name, `${plan.id}.png`),
+    styles: stylesOn ? { file: path.join(outDir, 'styles', side.name, `${plan.id}.json`), extraColors } : undefined,
+    states: stylesOn && cfg.states.enabled && !plan.flow ? { dir: path.join(outDir, 'states', side.name) } : undefined,
+    a11y: plan.a11y,
+    focusOrder: plan.focus,
+  });
+  const stills = plans.filter((p) => !p.flow);
+  for (const plan of stills) {
     for (const side of sides) {
       n++;
-      const target: CaptureTarget = {
-        id: plan.id,
-        side: side.name,
-        route: plan.route,
-        viewport: plan.viewport,
-        theme: plan.theme,
-        url: routeUrl(side.url, plan.route.path, plan.theme.query),
-        file: path.join(outDir, 'captures', side.name, `${plan.id}.png`),
-        styles: stylesOn ? { file: path.join(outDir, 'styles', side.name, `${plan.id}.json`), extraColors } : undefined,
-        states: stylesOn && cfg.states.enabled ? { dir: path.join(outDir, 'states', side.name) } : undefined,
-        a11y: plan.a11y,
-        focusOrder: plan.focus,
-      };
-      log.step(`capture ${n}/${plans.length * sides.length}: ${side.name} ${plan.route.path} (${plan.viewport.name}, ${plan.theme.name})`);
-      const record = await booted.session.capture(target);
+      log.step(`capture ${n}/${stills.length * sides.length}: ${side.name} ${plan.route.path} (${plan.viewport.name}, ${plan.theme.name})`);
+      const record = await booted.session.capture(target(plan, side));
       if (!record.ok) log.warn(`${side.name} ${plan.id}: ${record.error}`);
       else if (!record.stable || record.unsettled) log.warn(unsettledWarning(`${side.name} ${plan.id}`, record));
       for (const action of record.skippedActions ?? []) log.warn(`${plan.id}: ${skippedActionWarning(side.name, action)}`);
@@ -645,13 +731,76 @@ async function captureStage(booted: Booted, prepared: Prepared, outDir: string, 
       records.set(`${side.name}:${plan.id}`, record);
     }
   }
+  const runs = flowRuns(plans);
+  let f = 0;
+  for (const checkpoints of runs) {
+    const { route, viewport, theme } = checkpoints[0];
+    const flow = checkpoints[0].flow!.def;
+    for (const side of sides) {
+      f++;
+      log.step(`flow ${f}/${runs.length * sides.length}: ${side.name} '${flow.name}' on ${route.path} (${viewport.name}, ${theme.name})`);
+      const recs = await booted.session.flow({
+        side: side.name,
+        route,
+        viewport,
+        theme,
+        url: routeUrl(side.url, route.path, theme.query),
+        flow,
+        checkpoints: checkpoints.map((p) => target(p, side)),
+        timeoutMs: cfg.flowLimits.stepTimeoutMs,
+      });
+      const info = recs[0].flow!;
+      const stop = info.stoppedAt ? `stopped at step ${info.stoppedAt.step} (${stopReason(info.stoppedAt, info.names[info.stoppedAt.step - 1])})` : `${recs.length} checkpoint${recs.length === 1 ? '' : 's'}`;
+      log.info(`flow '${flow.name}' ${side.name} (${viewport.name}, ${theme.name}): ${duration(info.ms)}, ${stop}`);
+      for (const r of recs) {
+        if (!r.ok && r.flow?.reached) log.warn(`${side.name} ${r.id}: ${r.error}`);
+        else if (r.ok && (!r.stable || r.unsettled)) log.warn(unsettledWarning(`${side.name} ${r.id}`, r));
+        records.set(`${side.name}:${r.id}`, r);
+      }
+    }
+  }
   return records;
+}
+
+/** A flow checkpoint one side never reached: the flow's result reports it, not a capture. */
+function notReached(plan: Plan, records: Map<string, CaptureRecord>): boolean {
+  return Boolean(plan.flow) && (['base', 'head'] as const).some((side) => records.get(`${side}:${plan.id}`)?.flow?.reached === false);
+}
+
+/**
+ * Each replayed flow with where it stopped on each side: a finding when one side stops where the
+ * other goes on, a problem with the flow (a warning) when both stop at the same step.
+ */
+function flowResults(plans: Plan[], records: Map<string, CaptureRecord>, captures: CaptureResult[], ctx: { cachedBase: boolean; themes: number }): { flows: FlowResult[]; warnings: string[] } {
+  const flows: FlowResult[] = [];
+  const problems = new Map<string, string[]>();
+  for (const checkpoints of flowRuns(plans)) {
+    const { route, viewport, theme } = checkpoints[0];
+    const def = checkpoints[0].flow!.def;
+    const [b, h] = [records.get(`base:${checkpoints[0].id}`)?.flow, records.get(`head:${checkpoints[0].id}`)?.flow];
+    if (!b || !h) continue;
+    const outcome = flowOutcome(def.name, b, h);
+    const side = (info: typeof b, cached: boolean) => ({ ms: info.ms, ...(info.stoppedAt ? { stoppedAt: info.stoppedAt } : {}), ...(cached ? { cached } : {}) });
+    flows.push({
+      name: def.name,
+      route: { path: route.path, name: route.name, slug: route.slug },
+      viewport: viewport.name,
+      theme: theme.name,
+      steps: def.steps.map(describeFlowStep),
+      checkpoints: checkpoints.map((p) => ({ name: p.flow!.checkpoint.name, step: p.flow!.checkpoint.step + 1, ...(captures.some((c) => c.id === p.id) ? { capture: p.id } : {}) })),
+      base: side(b, ctx.cachedBase),
+      head: side(h, false),
+      ...outcome,
+    });
+    if (outcome.problem) problems.set(outcome.problem, [...(problems.get(outcome.problem) ?? []), `${viewport.name}${ctx.themes > 1 ? `/${theme.name}` : ''}`]);
+  }
+  return { flows, warnings: [...problems].map(([problem, where]) => `${problem} (${where.join(', ')})`) };
 }
 
 /** Pixel diffs and composites per plan, plus the warnings each side's capture left. */
 function diffStage(plans: Plan[], records: Map<string, CaptureRecord>, ctx: { base: Side; head: Side; cfg: ResolvedConfig; outDir: string; cache?: BaseCacheInfo }): CaptureResult[] {
   const { cfg } = ctx;
-  const captures = plans.map((plan) => compareCapture(plan, records.get(`base:${plan.id}`)!, records.get(`head:${plan.id}`)!, ctx));
+  const captures = plans.filter((plan) => !notReached(plan, records)).map((plan) => compareCapture(plan, records.get(`base:${plan.id}`)!, records.get(`head:${plan.id}`)!, ctx));
   for (const c of captures) {
     const b = records.get(`base:${c.id}`);
     const h = records.get(`head:${c.id}`);
@@ -724,7 +873,10 @@ function styleDiffStage(captures: CaptureResult[], records: Map<string, CaptureR
     const [base, head] = [read(records.get(`base:${c.id}`)?.stylesFile), read(records.get(`head:${c.id}`)?.stylesFile)];
     if (!base || !head) continue;
     const match = matchElements(base.elements, head.elements);
-    const all = diffElements(base, head, match, { focusOnly: c.regions?.focusOnly });
+    // A flow checkpoint shows the first viewport only: what changed below it is the still capture's to report.
+    const view = c.flow && c.diff ? { width: Math.max(c.diff.sizeBefore[0], c.diff.sizeAfter[0]), height: Math.max(c.diff.sizeBefore[1], c.diff.sizeAfter[1]) } : undefined;
+    const inView = (x: ElementChange) => !view || Boolean(x.deviceBox && x.deviceBox.x < view.width && x.deviceBox.y < view.height && x.deviceBox.x + x.deviceBox.width > 0 && x.deviceBox.y + x.deviceBox.height > 0);
+    const all = diffElements(base, head, match, { focusOnly: c.regions?.focusOnly }).filter(inView);
     // maxChanges limits the elements that count; effects stay when their cause does.
     const counted = all.filter((x) => !onlyEffects(x));
     const top = counted.slice(0, cfg.styleDiff.maxChanges);
@@ -861,6 +1013,7 @@ function compareCapture(plan: Plan, baseRec: CaptureRecord, headRec: CaptureReco
     route: { path: plan.route.path, name: plan.route.name, slug: plan.route.slug },
     viewport: plan.viewport.name,
     theme: plan.theme.name,
+    ...(plan.flow ? { flow: { name: plan.flow.def.name, checkpoint: plan.flow.checkpoint.name } } : {}),
     status: 'error',
     urls: {
       base: ctx.base.mode === 'url' ? sanitizeUrl(routeUrl(ctx.base.url, plan.route.path, plan.theme.query)) : undefined,

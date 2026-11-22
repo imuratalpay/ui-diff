@@ -2,6 +2,7 @@ import type { MeasuredRow } from './verdict.js';
 import type { A11yIssue, FocusDelta } from './a11y.js';
 import { describeDependency, type DependencyChange } from './deps.js';
 import type { ElementChange, RegionExplanation } from './elements.js';
+import type { FlowStop } from './flows.js';
 import type { Box } from './image.js';
 import { UiDiffError } from './log.js';
 import type { AggregatedFinding } from './tokens.js';
@@ -20,6 +21,8 @@ export interface CaptureResult {
   route: RouteRef;
   viewport: string;
   theme: string;
+  /** Set for a checkpoint of a recorded flow: the page as the flow left it there, first viewport only. */
+  flow?: { name: string; checkpoint: string };
   status: CaptureStatus;
   error?: string;
   /** Display URLs (sanitized), only for deployed previews. */
@@ -134,6 +137,32 @@ export interface MotionResult {
   error?: string;
 }
 
+/** One side's replay of a flow. */
+export interface FlowSide {
+  /** The whole replay, page load and checkpoints included. */
+  ms: number;
+  stoppedAt?: FlowStop;
+  /** Restored from the base cache: ms is from the run that stored it. */
+  cached?: boolean;
+}
+
+/** One flow on one viewport and theme, replayed on base and head. */
+export interface FlowResult {
+  name: string;
+  route: RouteRef;
+  viewport: string;
+  theme: string;
+  steps: string[];
+  /** step is 1-based; capture is the id in `captures`, set when both sides reached the checkpoint. */
+  checkpoints: Array<{ name: string; step: number; capture?: string }>;
+  base: FlowSide;
+  head: FlowSide;
+  /** The flow stops on one side only (or earlier on one): counted as a change. */
+  finding?: string;
+  /** The flow stops at the same step on both sides: a problem with the flow, listed as a warning. */
+  problem?: string;
+}
+
 export interface TokenReport {
   files: string[];
   scope: 'changed-regions' | 'page';
@@ -180,7 +209,7 @@ export interface Timings {
   capture?: { ms: number; count: number; slowest?: { id: string; side: 'base' | 'head'; ms: number } };
   diffMs?: number;
   /** a11y includes the axe runs and elementMapMs the element maps, both taken during capture. */
-  extras?: { variantsMs?: number; motionMs?: number; a11yMs?: number; tokensMs?: number; elementMapMs?: number; styleDiffMs?: number };
+  extras?: { variantsMs?: number; motionMs?: number; a11yMs?: number; tokensMs?: number; elementMapMs?: number; styleDiffMs?: number; flowsMs?: number };
 }
 
 export interface SideSummary {
@@ -230,6 +259,8 @@ export interface Report {
   captures: CaptureResult[];
   variants: VariantGroup[];
   motion: MotionResult[];
+  /** Recorded flows, one per flow, viewport and theme. */
+  flows?: FlowResult[];
   /** Routes whose motion clip was skipped because no capture of them changed (use --motion-all to record anyway). */
   motionSkipped?: string[];
   /** Changed routes whose changed files touch no animation (transitions, keyframes, :hover...), so no clip was recorded. */
@@ -341,8 +372,13 @@ export function pct(ratio: number): string {
   return `${p < 10 ? p.toFixed(2) : p.toFixed(1)}%`;
 }
 
-export function captureLabel(c: { route: RouteRef; viewport: string; theme: string }, themes: number): string {
-  return `${c.route.path} · ${c.viewport}${themes > 1 || c.theme !== 'light' ? ` · ${c.theme}` : ''}`;
+export function captureLabel(c: { route: RouteRef; viewport: string; theme: string; flow?: CaptureResult['flow'] }, themes: number): string {
+  return `${c.route.path} · ${c.viewport}${themes > 1 || c.theme !== 'light' ? ` · ${c.theme}` : ''}${c.flow ? ` · ${flowLabel(c.flow)}` : ''}`;
+}
+
+/** "flow 'menu' · after open". */
+export function flowLabel(flow: { name: string; checkpoint: string }): string {
+  return `flow '${flow.name}' · ${flow.checkpoint}`;
 }
 
 function sizeNote(c: CaptureResult): string | undefined {
