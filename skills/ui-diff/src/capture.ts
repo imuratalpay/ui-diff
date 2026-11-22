@@ -4,9 +4,10 @@ import path from 'node:path';
 import { chromium, devices, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from 'playwright';
 import { collectFocusOrder, runAxe, type AxeViolation, type FocusStop } from './a11y.js';
 import { applyAuth, type ResolvedAuth } from './auth.js';
-import type { ResolvedConfig, ResolvedRoute, ThemeConfig, ViewportConfig } from './config.js';
+import type { ResolvedConfig, ResolvedFlow, ResolvedRoute, ThemeConfig, ViewportConfig } from './config.js';
 import { DEV_OVERLAY_SELECTORS, fontState, freezeAnimations, hideCss, initScript, pageHeight, scrollThrough, settleFonts, waitForFontsAndImages, type FontState } from './determinism.js';
 import { exec } from './exec.js';
+import { runFlow, type FlowRunInfo } from './flows.js';
 import type { Box } from './image.js';
 import { log, redact, UiDiffError } from './log.js';
 import type { SideFingerprint } from './report.js';
@@ -14,6 +15,7 @@ import type { SideName } from './sides.js';
 import { runSteps } from './steps.js';
 import { collectStyles } from './styles.js';
 import { captureStates, type StateCapture } from './states.js';
+import type { StyleSnapshot } from './tokens.js';
 import { changedRegions, type UnsettledRegion } from './unsettled.js';
 
 export interface CaptureTarget {
@@ -29,6 +31,19 @@ export interface CaptureTarget {
   states?: { dir: string };
   a11y?: boolean;
   focusOrder?: boolean;
+}
+
+/** One side of a flow: where it starts, and a capture target per checkpoint, in the flow's order. */
+export interface FlowTarget {
+  side: SideName;
+  route: ResolvedRoute;
+  viewport: ViewportConfig;
+  theme: ThemeConfig;
+  url: string;
+  flow: ResolvedFlow;
+  checkpoints: CaptureTarget[];
+  /** flowLimits.stepTimeoutMs. */
+  timeoutMs: number;
 }
 
 export interface CaptureRecord {
@@ -74,7 +89,18 @@ export interface CaptureRecord {
   environment?: Omit<SideFingerprint, 'commit' | 'data'>;
   /** `window.devicePixelRatio` measured in the page: device pixels per CSS pixel in the screenshot. */
   scale?: number;
+  /** A flow checkpoint: that side's replay of the flow, and whether it got this far. */
+  flow?: FlowRunInfo;
   durationMs: number;
+}
+
+/** Element boxes relative to the viewport, for a screenshot of the viewport taken while scrolled. */
+function toViewport(snapshot: StyleSnapshot, [sx, sy]: [number, number], scale: number): void {
+  if (!sx && !sy) return;
+  for (const e of snapshot.elements) {
+    e.box = { ...e.box, x: e.box.x - sx, y: e.box.y - sy };
+    e.deviceBox = { x: Math.round(e.box.x * scale), y: Math.round(e.box.y * scale), width: Math.round(e.box.width * scale), height: Math.round(e.box.height * scale) };
+  }
 }
 
 /** Names the element behind each changing area so the warning can say what to mask. */
@@ -417,6 +443,114 @@ export class CaptureSession {
     });
   }
 
+  /**
+   * The screenshot of a settled page and its element map, written where the target says; true when
+   * the page clock was paused for the screenshot (the caller resumes it).
+   */
+  private async shootAndMap(page: Page, target: CaptureTarget, record: CaptureRecord, fullPage: boolean): Promise<boolean> {
+    const { cfg } = this.opts;
+    record.scale = await page.evaluate(() => window.devicePixelRatio);
+    record.fonts = await fontState(page);
+    record.environment = await this.environment(page, target, record.fonts);
+    const shot = await this.screenshot(page, target.route, fullPage);
+    mkdirSync(path.dirname(target.file), { recursive: true });
+    writeFileSync(target.file, shot.buffer);
+    Object.assign(record, { file: target.file, stable: shot.stable, attempts: shot.attempts, truncated: shot.truncated });
+    if (shot.unsettled) record.unsettled = shot.unsettled;
+    if (shot.frozeTimers) record.frozeTimers = true;
+    if (target.styles) {
+      const stylesStart = performance.now();
+      const ignored = [...cfg.ignore, ...target.route.ignore];
+      const focus = [...cfg.focus, ...target.route.focus];
+      const masked = [...ignored, ...cfg.capture.mask, ...target.route.mask, ...cfg.capture.hide, ...target.route.hide, ...(cfg.capture.hideDevOverlays ? DEV_OVERLAY_SELECTORS : [])];
+      const { snapshot, capped, hits } = await collectStyles(page, { maxElements: cfg.capture.styleMaxElements, ignore: cfg.tokens.ignoreSelectors, extraColors: target.styles.extraColors, masked, focus });
+      if (!fullPage) toViewport(snapshot, await page.evaluate(() => [window.scrollX, window.scrollY] as [number, number]), record.scale);
+      if (ignored.length || focus.length) {
+        record.regionHits = { focus: Object.fromEntries(focus.map((sel, i) => [sel, hits.focus[i]])), ignore: Object.fromEntries(ignored.map((sel, i) => [sel, hits.masked[i]])) };
+        record.focusBoxes = snapshot.elements.filter((e) => e.focus).map((e) => e.deviceBox!);
+      }
+      mkdirSync(path.dirname(target.styles.file), { recursive: true });
+      writeFileSync(target.styles.file, JSON.stringify(snapshot));
+      record.stylesFile = target.styles.file;
+      if (capped) record.stylesCapped = true;
+      record.stylesCount = snapshot.elements.length;
+      record.stylesMs = Math.round(performance.now() - stylesStart);
+    }
+    return shot.frozeTimers;
+  }
+
+  /** After a flow step, before its checkpoint: the settle a page gets after opening, for the first viewport. */
+  private async settleStep(page: Page): Promise<void> {
+    const { cfg } = this.opts;
+    if (cfg.capture.networkIdleTimeoutMs > 0) await page.waitForLoadState('networkidle', { timeout: cfg.capture.networkIdleTimeoutMs }).catch(() => undefined);
+    if (cfg.freeze.animations) await freezeAnimations(page);
+    if (cfg.freeze.fonts) await this.waitForFonts(page, Math.min(5000, cfg.freeze.fontTimeoutMs));
+    if (cfg.capture.settleMs) await page.waitForTimeout(cfg.capture.settleMs);
+  }
+
+  /**
+   * Replays a flow on one side: the page is opened and settled as for a capture (same context,
+   * frozen inputs, network idle, fonts, animations), then the steps run, and at each checkpoint the
+   * page is settled again and its first viewport shot and mapped like a capture. One record per
+   * checkpoint, in order; those after the step where the flow stopped are not reached. Hover and
+   * focus states are not recorded: they would move the pointer and focus the flow set up.
+   */
+  async flow(run: FlowTarget): Promise<CaptureRecord[]> {
+    const { cfg } = this.opts;
+    const started = Date.now();
+    const records: CaptureRecord[] = run.checkpoints.map((t) => ({ id: t.id, side: t.side, ok: false, consoleErrors: [], pageErrors: [], truncated: false, stable: false, attempts: 0, durationMs: 0 }));
+    const consoleErrors: string[] = [];
+    const pageErrors: string[] = [];
+    const reached = new Set<number>();
+    let result: Awaited<ReturnType<typeof runFlow>> = { names: run.flow.steps.map(() => null) };
+    let context: BrowserContext | undefined;
+    try {
+      context = await this.newContext(run.viewport, run.theme);
+      const page = await context.newPage();
+      page.on('console', (msg) => {
+        if (msg.type() === 'error' && consoleErrors.length < 10) consoleErrors.push(redact(msg.text()).slice(0, 300));
+      });
+      page.on('pageerror', (error) => {
+        if (pageErrors.length < 10) pageErrors.push(redact(error.message).slice(0, 300));
+      });
+      const opened = await this.openAndSettle(page, run.url, { ...run.route, actions: [] }, { freeze: cfg.freeze.animations, fullPage: false });
+      for (const r of records) r.httpStatus = opened.status;
+      result = await runFlow(page, run.flow.steps, {
+        timeoutMs: run.timeoutMs,
+        onCheckpoint: async (_name, step) => {
+          const i = run.flow.checkpoints.findIndex((c) => c.step === step);
+          const [target, record] = [run.checkpoints[i], records[i]];
+          const checkpointStart = Date.now();
+          reached.add(i);
+          try {
+            await this.settleStep(page);
+            if (await this.shootAndMap(page, target, record, false)) await page.context().clock.resume().catch(() => undefined);
+            record.ok = true;
+          } catch (error) {
+            record.error = redact((error as Error).message.split('\n')[0]);
+          }
+          Object.assign(record, { consoleErrors: [...consoleErrors], pageErrors: [...pageErrors], durationMs: Date.now() - checkpointStart });
+        },
+      });
+    } catch (error) {
+      // The page did not open: a failed capture of every checkpoint, not a broken flow.
+      const message = redact((error as Error).message.split('\n')[0]);
+      records.forEach((r, i) => {
+        if (reached.has(i)) return;
+        reached.add(i);
+        r.error = message;
+      });
+    } finally {
+      await context?.close().catch(() => undefined);
+    }
+    const ms = Date.now() - started;
+    records.forEach((r, i) => {
+      r.flow = { name: run.flow.name, names: result.names, ...(result.stoppedAt ? { stoppedAt: result.stoppedAt } : {}), reached: reached.has(i), ms };
+      if (!reached.has(i)) r.error = `not reached: the flow stopped at step ${result.stoppedAt?.step}`;
+    });
+    return records;
+  }
+
   async capture(target: CaptureTarget): Promise<CaptureRecord> {
     const { cfg } = this.opts;
     const started = Date.now();
@@ -435,32 +569,7 @@ export class CaptureSession {
       const opened = await this.openAndSettle(page, target.url, target.route, { freeze: cfg.freeze.animations, fullPage });
       record.httpStatus = opened.status;
       if (opened.skippedActions.length) record.skippedActions = opened.skippedActions;
-      record.scale = await page.evaluate(() => window.devicePixelRatio);
-      record.fonts = await fontState(page);
-      record.environment = await this.environment(page, target, record.fonts);
-      const shot = await this.screenshot(page, target.route, fullPage);
-      mkdirSync(path.dirname(target.file), { recursive: true });
-      writeFileSync(target.file, shot.buffer);
-      Object.assign(record, { file: target.file, stable: shot.stable, attempts: shot.attempts, truncated: shot.truncated });
-      if (shot.unsettled) record.unsettled = shot.unsettled;
-      if (shot.frozeTimers) record.frozeTimers = true;
-      if (target.styles) {
-        const stylesStart = performance.now();
-        const ignored = [...cfg.ignore, ...target.route.ignore];
-        const focus = [...cfg.focus, ...target.route.focus];
-        const masked = [...ignored, ...cfg.capture.mask, ...target.route.mask, ...cfg.capture.hide, ...target.route.hide, ...(cfg.capture.hideDevOverlays ? DEV_OVERLAY_SELECTORS : [])];
-        const { snapshot, capped, hits } = await collectStyles(page, { maxElements: cfg.capture.styleMaxElements, ignore: cfg.tokens.ignoreSelectors, extraColors: target.styles.extraColors, masked, focus });
-        if (ignored.length || focus.length) {
-          record.regionHits = { focus: Object.fromEntries(focus.map((sel, i) => [sel, hits.focus[i]])), ignore: Object.fromEntries(ignored.map((sel, i) => [sel, hits.masked[i]])) };
-          record.focusBoxes = snapshot.elements.filter((e) => e.focus).map((e) => e.deviceBox!);
-        }
-        mkdirSync(path.dirname(target.styles.file), { recursive: true });
-        writeFileSync(target.styles.file, JSON.stringify(snapshot));
-        record.stylesFile = target.styles.file;
-        if (capped) record.stylesCapped = true;
-        record.stylesCount = snapshot.elements.length;
-        record.stylesMs = Math.round(performance.now() - stylesStart);
-      }
+      const frozeTimers = await this.shootAndMap(page, target, record, fullPage);
       if (target.states && target.styles) {
         const statesStart = performance.now();
         const masked = [...cfg.ignore, ...target.route.ignore, ...cfg.capture.mask, ...target.route.mask, ...cfg.capture.hide, ...target.route.hide, ...(cfg.capture.hideDevOverlays ? DEV_OVERLAY_SELECTORS : [])];
@@ -478,7 +587,7 @@ export class CaptureSession {
         });
         record.statesMs = Math.round(performance.now() - statesStart);
       }
-      if (shot.frozeTimers) await page.context().clock.resume().catch(() => undefined);
+      if (frozeTimers) await page.context().clock.resume().catch(() => undefined);
       const a11yStart = performance.now();
       if (target.a11y) record.axe = await runAxe(page, { tags: cfg.a11y.tags, rules: cfg.a11y.rules });
       if (target.focusOrder) record.focusOrder = await collectFocusOrder(page, cfg.a11y.maxTabStops);
