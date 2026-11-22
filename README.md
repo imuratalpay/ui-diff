@@ -73,7 +73,10 @@ If something fails, see [Troubleshooting](#troubleshooting).
 5. **Names what changed**: an element map of each capture matches base and head elements and
    measures their style changes, so the comment says `link 'Get started': padding 8px 14px →
    10px 18px` instead of only "N pixels changed". Each measured change is checked against the
-   match confidence and the changed pixels before it is shown.
+   match confidence and the changed pixels before it is shown. Links, buttons and form fields in
+   the first viewport are also checked hovered and reached with the Tab key, so a PR that only
+   changes a hover color or removes a focus ring reads `button 'Save' · hover: background #1d4ed8 →
+   #1e3a8a`, with a before | after crop ([`states`](skills/ui-diff/references/config.md#hover-and-focus-states)).
 6. **Writes a UX summary**: the agent writes it from the images and measurements (a data-driven
    draft is written to `.ui-diff/summary.auto.md`; without a summary the comment leads with the
    verdict and the measured changes).
