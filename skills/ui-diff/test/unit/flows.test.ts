@@ -235,7 +235,7 @@ describe('flows in the comment, in check and in the verdict', () => {
     magnitude: 10,
     verified: true,
   });
-  const menu = change("navigation 'Main menu'", '#menu', 'padding', '8px', '12px');
+  const menu = change("nav 'Main menu'", '#menu', 'padding', '8px', '12px');
   const flowResult = (finding?: string, extra: Partial<FlowResult> = {}): FlowResult => ({
     name: 'menu',
     route: { path: '/', name: 'home', slug: 'home' },
@@ -281,12 +281,12 @@ describe('flows in the comment, in check and in the verdict', () => {
     const r = withFlow([menu]);
     assert.equal(verdict(r).text, '1 measured change on 1 route');
     const body = render(r);
-    assert.match(body, /#### Measured changes\n\n\*\*`\/`\*\* · flow 'menu' · after open\n\n- `navigation 'Main menu'` \(`#menu`\): padding 8px → 12px — desktop\n/);
+    assert.match(body, /#### Measured changes\n\n\*\*`\/`\*\* · flow 'menu' · after open\n\n- `nav 'Main menu'` \(`#menu`\): padding 8px → 12px — desktop\n/);
     assert.match(body, /\*\*`\/`\*\* · desktop · flow 'menu' · after open — 1\.00% of pixels changed · 1 area\n\n<img src="compare\/home__desktop__light__flow-menu-after-open__pair-1\.png"/);
     assert.doesNotMatch(body, /#### Flows/);
     const check = checkSummary(r, '/o');
     assert.equal(check.exitCode, 1);
-    assert.match(check.text, /\nMeasured changes on \/ · flow 'menu' · after open\n {2}- navigation 'Main menu' \(#menu\): padding 8px → 12px — desktop\n/);
+    assert.match(check.text, /\nMeasured changes on \/ · flow 'menu' · after open\n {2}- nav 'Main menu' \(#menu\): padding 8px → 12px — desktop\n/);
     assert.match(check.text, /\n {2}\/ {2}desktop · flow 'menu' · after open {2}1\.00% of pixels changed/);
     assert.deepEqual(measuredGroups(r).map((g) => [g.route, g.flow, g.property]), [['/', { name: 'menu', checkpoint: 'after open' }, 'padding']]);
     assert.match(autoSummary(r), /`\/` changed on desktop \(flow 'menu' · after open\)/);
@@ -298,7 +298,7 @@ describe('flows in the comment, in check and in the verdict', () => {
     const body = render(r);
     assert.equal(verdict(r).text, '2 measured changes on 1 route');
     assert.equal(body.match(/font-size 32px → 36px — desktop/g)?.length, 1);
-    assert.match(body, /\*\*`\/`\*\*\n\n- `heading 'Pricing'` \(`h1`\): font-size 32px → 36px — desktop\n\n\*\*`\/`\*\* · flow 'menu' · after open\n\n- `navigation 'Main menu'` \(`#menu`\): padding 8px → 12px — desktop\n/);
+    assert.match(body, /\*\*`\/`\*\*\n\n- `heading 'Pricing'` \(`h1`\): font-size 32px → 36px — desktop\n\n\*\*`\/`\*\* · flow 'menu' · after open\n\n- `nav 'Main menu'` \(`#menu`\): padding 8px → 12px — desktop\n/);
   });
 
   it('reports a flow that stops on one side as a change, and one that stops on both as a warning only', () => {
