@@ -22,6 +22,38 @@ export const StepSchema = z.union([
 ]);
 export type Step = z.infer<typeof StepSchema>;
 
+const FLOW_NAME = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$/;
+const flowName = z.string().regex(FLOW_NAME, 'letters, digits, spaces, "-" and "_", up to 40 characters');
+const checkpoint = flowName.optional().describe('Capture the page after this step under this name, e.g. "after open"');
+const selector = z.string().min(1);
+
+/** One step of a recorded flow; any step can be a named checkpoint, and `{ "checkpoint": name }` alone captures without acting. */
+export const FlowStepSchema = z.union(
+  [
+    z.object({ click: selector, checkpoint }).strict(),
+    z.object({ hover: selector, checkpoint }).strict(),
+    z.object({ focus: selector, checkpoint }).strict(),
+    z.object({ type: selector, text: z.string(), checkpoint }).strict().describe('Replaces the field value with text'),
+    z.object({ press: z.string().min(1), checkpoint }).strict().describe('A key on the focused element, e.g. "Escape" or "Enter"'),
+    z.object({ select: selector, value: z.string(), checkpoint }).strict().describe('Picks the option with this value or label'),
+    z.object({ scroll: z.union([z.number().min(0), selector]), checkpoint }).strict().describe('To a y position in px, or until an element is in view'),
+    z.object({ wait: z.union([z.number().int().min(0).max(15000), selector]), checkpoint }).strict().describe('Milliseconds, or until an element is visible'),
+    z.object({ checkpoint: flowName }).strict(),
+  ],
+  { error: 'a step is one of click, hover, focus, type (with text), press, select (with value), scroll, wait or checkpoint' },
+);
+export type FlowStep = z.infer<typeof FlowStepSchema>;
+
+const FlowSchema = z
+  .object({
+    name: flowName,
+    route: z.string().startsWith('/').describe('Path the flow starts on'),
+    steps: z.array(FlowStepSchema).min(1),
+    viewports: z.array(z.string()).optional().describe('Default: the viewports of the route'),
+    themes: z.array(z.string()).optional().describe('Default: the themes of the route'),
+  })
+  .strict();
+
 const ViewportSchema = z
   .object({
     name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/),
@@ -344,6 +376,18 @@ export const ConfigSchema = z
       .strict()
       .prefault({})
       .describe('Hover and focus states of links, buttons, form fields and other interactive elements'),
+    flows: z
+      .array(FlowSchema)
+      .default([])
+      .describe('Interactions replayed on both sides (open a menu, fill a form); the page is captured and diffed at each checkpoint'),
+    flowLimits: z
+      .object({
+        maxFlows: z.number().int().min(0).default(5).describe('Flows run per run, in config order; the rest are listed as not run'),
+        maxSteps: z.number().int().min(1).default(15).describe('Longest flow that runs; a longer one is listed as not run'),
+        stepTimeoutMs: z.number().int().min(100).max(60000).default(5000).describe('How long a step waits for its element before the flow stops there'),
+      })
+      .strict()
+      .prefault({}),
     fingerprint: z
       .object({
         dataLabel: z
@@ -403,8 +447,28 @@ export interface ResolvedRoute {
   configured: boolean;
 }
 
-export interface ResolvedConfig extends Omit<RawConfig, 'routes'> {
+export interface FlowCheckpoint {
+  name: string;
+  /** Unique within its flow; part of the capture id and the file names. */
+  slug: string;
+  /** Index of the step it is taken after. */
+  step: number;
+}
+
+export interface ResolvedFlow {
+  name: string;
+  slug: string;
+  route: string;
+  /** With a checkpoint "end" on the last step when none was named. */
+  steps: FlowStep[];
+  checkpoints: FlowCheckpoint[];
+  viewports?: string[];
+  themes?: string[];
+}
+
+export interface ResolvedConfig extends Omit<RawConfig, 'routes' | 'flows'> {
   routes: ResolvedRoute[];
+  flows: ResolvedFlow[];
   /** Absolute path of the config file, or undefined when running on defaults. */
   file?: string;
   /** Absolute directory of the config file (or repo root). */
@@ -441,6 +505,29 @@ export function parseVariantFlag(flag: string): { route?: string; spec: VariantS
   const match = /^(?:(\/[^:]*):)?([^=]+)=(.+)$/.exec(flag.trim());
   if (!match) throw new UiDiffError(`Invalid --variants value "${flag}"`, { hint: 'Use param=values, e.g. hero=1..4 or /pricing:plan=a,b' });
   return { route: match[1], spec: { param: match[2].trim(), values: expandValues(match[3]) } };
+}
+
+/** "Mobile menu" → "mobile-menu": flow and checkpoint names in capture ids and file names. */
+export function nameSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'x';
+}
+
+/**
+ * A flow with its checkpoints: the named ones, or "end" after the last step when none is named.
+ * Checkpoint slugs must be unique within the flow.
+ */
+export function resolveFlow(flow: z.infer<typeof FlowSchema>): ResolvedFlow {
+  const named = flow.steps.some((s) => s.checkpoint !== undefined);
+  const steps = named ? flow.steps : [...flow.steps.slice(0, -1), { ...flow.steps[flow.steps.length - 1], checkpoint: 'end' } as FlowStep];
+  const checkpoints: FlowCheckpoint[] = [];
+  steps.forEach((s, i) => {
+    if (s.checkpoint === undefined) return;
+    const slug = nameSlug(s.checkpoint);
+    const same = checkpoints.find((c) => c.slug === slug);
+    if (same) throw new UiDiffError(`Flow "${flow.name}" has two checkpoints named like "${s.checkpoint}" (steps ${same.step + 1} and ${i + 1})`, { hint: 'Give each checkpoint of a flow its own name.' });
+    checkpoints.push({ name: s.checkpoint, slug, step: i });
+  });
+  return { name: flow.name, slug: nameSlug(flow.name), route: flow.route, steps, checkpoints, viewports: flow.viewports, themes: flow.themes };
 }
 
 export function routeSlug(routePath: string, name?: string): string {
@@ -559,9 +646,25 @@ export function parseConfig(raw: unknown, opts: { file?: string; repoRoot: strin
       if (!themeNames.has(t)) throw new UiDiffError(`Route ${route.path} references unknown theme "${t}"`);
     }
   }
+  const flows = parsed.flows.map(resolveFlow);
+  const flowIds = new Map<string, string>();
+  for (const flow of flows) {
+    const other = flows.find((f) => f !== flow && f.slug === flow.slug);
+    if (other) throw new UiDiffError(`Flows "${flow.name}" and "${other.name}" have the same name`, { hint: 'Give each flow its own name.' });
+    // "a-b" + "c" and "a" + "b-c" would share file names.
+    for (const c of flow.checkpoints) {
+      const id = `${flow.slug}-${c.slug}`;
+      const taken = flowIds.get(id);
+      if (taken) throw new UiDiffError(`Flow "${flow.name}" checkpoint "${c.name}" and ${taken} would share the file name flow-${id}`, { hint: 'Rename one of them.' });
+      flowIds.set(id, `flow "${flow.name}" checkpoint "${c.name}"`);
+    }
+    for (const v of flow.viewports ?? []) if (!viewportNames.has(v)) throw new UiDiffError(`Flow "${flow.name}" references unknown viewport "${v}"`);
+    for (const t of flow.themes ?? []) if (!themeNames.has(t)) throw new UiDiffError(`Flow "${flow.name}" references unknown theme "${t}"`);
+  }
   return {
     ...parsed,
     routes,
+    flows,
     globalFiles: parsed.globalFiles.map((g) => toRepoGlob(g, dirRel)),
     file: opts.file,
     dir,

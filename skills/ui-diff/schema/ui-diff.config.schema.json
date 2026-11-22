@@ -1003,6 +1003,269 @@
       },
       "additionalProperties": false
     },
+    "flows": {
+      "default": [],
+      "description": "Interactions replayed on both sides (open a menu, fill a form); the page is captured and diffed at each checkpoint",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$"
+          },
+          "route": {
+            "type": "string",
+            "format": "starts_with",
+            "pattern": "^\\/.*",
+            "description": "Path the flow starts on"
+          },
+          "steps": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "click": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "checkpoint": {
+                      "description": "Capture the page after this step under this name, e.g. \"after open\"",
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$"
+                    }
+                  },
+                  "required": [
+                    "click"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "hover": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "checkpoint": {
+                      "description": "Capture the page after this step under this name, e.g. \"after open\"",
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$"
+                    }
+                  },
+                  "required": [
+                    "hover"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "focus": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "checkpoint": {
+                      "description": "Capture the page after this step under this name, e.g. \"after open\"",
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$"
+                    }
+                  },
+                  "required": [
+                    "focus"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "checkpoint": {
+                      "description": "Capture the page after this step under this name, e.g. \"after open\"",
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "text"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Replaces the field value with text"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "press": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "checkpoint": {
+                      "description": "Capture the page after this step under this name, e.g. \"after open\"",
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$"
+                    }
+                  },
+                  "required": [
+                    "press"
+                  ],
+                  "additionalProperties": false,
+                  "description": "A key on the focused element, e.g. \"Escape\" or \"Enter\""
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "select": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "value": {
+                      "type": "string"
+                    },
+                    "checkpoint": {
+                      "description": "Capture the page after this step under this name, e.g. \"after open\"",
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$"
+                    }
+                  },
+                  "required": [
+                    "select",
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Picks the option with this value or label"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "scroll": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      ]
+                    },
+                    "checkpoint": {
+                      "description": "Capture the page after this step under this name, e.g. \"after open\"",
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$"
+                    }
+                  },
+                  "required": [
+                    "scroll"
+                  ],
+                  "additionalProperties": false,
+                  "description": "To a y position in px, or until an element is in view"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "wait": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 15000
+                        },
+                        {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      ]
+                    },
+                    "checkpoint": {
+                      "description": "Capture the page after this step under this name, e.g. \"after open\"",
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$"
+                    }
+                  },
+                  "required": [
+                    "wait"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Milliseconds, or until an element is visible"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "checkpoint": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$"
+                    }
+                  },
+                  "required": [
+                    "checkpoint"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "viewports": {
+            "description": "Default: the viewports of the route",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "themes": {
+            "description": "Default: the themes of the route",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "route",
+          "steps"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "flowLimits": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "maxFlows": {
+          "default": 5,
+          "description": "Flows run per run, in config order; the rest are listed as not run",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxSteps": {
+          "default": 15,
+          "description": "Longest flow that runs; a longer one is listed as not run",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "stepTimeoutMs": {
+          "default": 5000,
+          "description": "How long a step waits for its element before the flow stops there",
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 60000
+        }
+      },
+      "additionalProperties": false
+    },
     "fingerprint": {
       "default": {},
       "type": "object",
