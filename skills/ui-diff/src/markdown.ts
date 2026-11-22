@@ -1,8 +1,8 @@
 import { categorize } from './a11y.js';
 import { describeDependency, type DependencyChange } from './deps.js';
 import { onlyEffects } from './elements.js';
-import { captureLabel, describeCapture, notCheckedNotice, notCheckedReason, type CaptureResult, type Report, type SideTiming, type Timings } from './report.js';
-import { causeText, effectLines, hasStateChanges, isShownChange, measurements, pixelOnlyAreas, verdict, type EffectLine } from './verdict.js';
+import { captureLabel, describeCapture, flowLabel, notCheckedNotice, notCheckedReason, type CaptureResult, type Report, type SideTiming, type Timings } from './report.js';
+import { causeText, effectLines, flowFindings, hasStateChanges, isShownChange, measurements, pixelOnlyAreas, verdict, type EffectLine } from './verdict.js';
 
 export { changeText } from './verdict.js';
 
@@ -58,7 +58,7 @@ export function compressWhere(labels: string[], totals: Map<string, number>): st
 }
 
 function captureHeading(c: CaptureResult, themes: number): string {
-  return `**${code(c.route.path)}** · ${c.viewport}${themes > 1 || c.theme !== 'light' ? ` · ${c.theme}` : ''}`;
+  return `**${code(c.route.path)}** · ${c.viewport}${themes > 1 || c.theme !== 'light' ? ` · ${c.theme}` : ''}${c.flow ? ` · ${escapeText(flowLabel(c.flow))}` : ''}`;
 }
 
 function imagesOn(opts: RenderOptions): boolean {
@@ -105,7 +105,7 @@ function measuredSection(report: Report, opts: RenderOptions): string[] {
   const compact = opts.compact ?? 0;
   const out = ['#### Measured changes', ''];
   for (const r of routes) {
-    out.push(`**${code(r.route)}**`, '');
+    out.push(`**${code(r.route)}**${r.flow ? ` · ${escapeText(flowLabel(r.flow))}` : ''}`, '');
     const line = (row: (typeof r.rows)[number]): string[] => {
       const lines = [`- ${elementLabel(row.name, row.selector)}${row.state ? ` · ${row.state}` : ''}: ${escapeText(row.text)} — ${row.where}`];
       const effects = effectLines(row);
@@ -136,6 +136,13 @@ function measuredSection(report: Report, opts: RenderOptions): string[] {
     out.push('');
   }
   return out;
+}
+
+/** Flows that stop on one side only: what a reviewer can no longer (or can now) do. */
+function flowsSection(report: Report): string[] {
+  const findings = flowFindings(report);
+  if (findings.length === 0) return [];
+  return ['#### Flows', '', ...findings.map((f) => `- ${escapeText(f.text)} — ${f.where}`), ''];
 }
 
 /** Changed areas that no measured change explains, after the images. */
@@ -376,6 +383,7 @@ const EXTRA_LABELS: Array<[keyof NonNullable<Timings['extras']>, string, string]
   ['tokensMs', 'tokens', 'the token audit'],
   ['elementMapMs', 'element map', 'element maps of every capture (taken during capture)'],
   ['styleDiffMs', 'style diff', 'matching elements, measuring style changes, naming changed areas'],
+  ['flowsMs', 'flows', 'flow replays with their checkpoint captures (taken during capture)'],
 ];
 
 /** The whole run on one line; every number is measured. */
@@ -610,6 +618,7 @@ function sections(report: Report, opts: RenderOptions): Section[] {
   const failed = report.captures.filter((c) => c.status === 'error');
   const unchanged = report.captures.filter((c) => c.status === 'unchanged' && !c.images.states?.length);
   out.push({ name: 'measured changes', priority: 90, lines: measuredSection(report, opts) });
+  out.push({ name: 'flows', priority: 85, lines: flowsSection(report) });
   if (shown.length) out.push({ name: 'images', priority: 80, lines: ['#### Images', '', ...imagesSection(report, shown, opts)] });
   out.push({ name: 'pixel changes with no measured change', priority: 70, lines: pixelOnlySection(report, opts) });
   if (failed.length) {

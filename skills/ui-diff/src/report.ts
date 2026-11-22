@@ -470,21 +470,23 @@ export function autoSummary(report: Report): string {
   const s = report.stats;
   const changed = report.captures.filter((c) => c.status === 'changed' || c.status === 'added' || c.status === 'removed');
   const notChecked = notCheckedReason(report);
+  const broken = (report.flows ?? []).some((f) => f.finding);
   if (notChecked) {
     lines.push(notCheckedNotice(notChecked));
-  } else if (changed.length === 0 && s.errors === 0 && report.notComparable) {
+  } else if (changed.length === 0 && s.errors === 0 && !broken && report.notComparable) {
     lines.push(`No visual changes found across ${s.captures} capture${s.captures === 1 ? '' : 's'}, but base and head were captured differently (${report.notComparable.map((n) => n.key).join(', ')}), so this is not a clean result.`);
-  } else if (changed.length === 0 && s.errors === 0) {
+  } else if (changed.length === 0 && s.errors === 0 && !broken) {
     lines.push(`No visual changes across ${s.captures} capture${s.captures === 1 ? '' : 's'} (${report.routes.length} route${report.routes.length === 1 ? '' : 's'}).`);
   } else {
     const byRoute = new Map<string, CaptureResult[]>();
     for (const c of changed) byRoute.set(c.route.path, [...(byRoute.get(c.route.path) ?? []), c]);
     for (const [route, items] of byRoute) {
       const worst = items.reduce((a, b) => ((b.diff?.ratio ?? 0) > (a.diff?.ratio ?? 0) ? b : a));
-      const where = items.map((i) => `${i.viewport}${report.themes.length > 1 ? `/${i.theme}` : ''}`).join(', ');
+      const where = [...new Set(items.map((i) => `${i.viewport}${report.themes.length > 1 ? `/${i.theme}` : ''}${i.flow ? ` (${flowLabel(i.flow)})` : ''}`))].join(', ');
       lines.push(`- \`${route}\` changed on ${where}; largest: ${describeCapture(worst)}.${measuredSummary(items)}`);
     }
   }
+  for (const finding of new Set((report.flows ?? []).map((f) => f.finding).filter(Boolean))) lines.push(`- ${finding![0].toUpperCase()}${finding!.slice(1)}.`);
   if (s.errors) lines.push(`- ${s.errors} capture${s.errors === 1 ? '' : 's'} failed — see the details below.`);
   const env = changed.filter((c) => c.fingerprint?.differences.length);
   if (env.length) {

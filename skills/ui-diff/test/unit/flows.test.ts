@@ -4,6 +4,12 @@ import type { Page } from 'playwright';
 import { parseConfig, type FlowStep } from '../../src/config.js';
 import { describeFlowStep, flowOutcome, runFlow, stopReason, type FlowStop } from '../../src/flows.js';
 import { captureKey, keyId } from '../../src/key.js';
+import { checkSummary } from '../../src/check.js';
+import type { ElementChange } from '../../src/elements.js';
+import { renderComment } from '../../src/markdown.js';
+import { autoSummary, computeStats, type CaptureResult, type FlowResult, type Report } from '../../src/report.js';
+import { measuredGroups, verdict } from '../../src/verdict.js';
+import { sampleReport } from './fixtures.js';
 
 const parse = (raw: unknown) => parseConfig(raw, { repoRoot: '/repo' });
 
@@ -211,5 +217,107 @@ describe('flow checkpoint naming', () => {
     const others = [`${capture}`, `${capture}__focus-1`, `${capture}__pair-1`, `${capture}__blink-1`, `${capture}__hover-1`, `${capture}__focus-1`, keyId(captureKey({ slug: 'home' }, { name: 'desktop' }, { name: 'light' }, { param: 'hero', value: '2' }))];
     assert.ok(!others.includes(id));
     assert.ok(id.startsWith(`${capture}__flow-`));
+  });
+});
+
+describe('flows in the comment, in check and in the verdict', () => {
+  const change = (name: string, selector: string, property: string, before: string, after: string): ElementChange => ({
+    kind: 'changed',
+    name,
+    selector,
+    base: 0,
+    head: 0,
+    confidence: 'high',
+    reason: 'same id',
+    changes: [{ property, group: 'box', before, after, id: `h0:${property}`, kind: 'cause' }],
+    box: { x: 0, y: 0, width: 200, height: 120 },
+    deviceBox: { x: 0, y: 0, width: 200, height: 120 },
+    magnitude: 10,
+    verified: true,
+  });
+  const menu = change("navigation 'Main menu'", '#menu', 'padding', '8px', '12px');
+  const flowResult = (finding?: string, extra: Partial<FlowResult> = {}): FlowResult => ({
+    name: 'menu',
+    route: { path: '/', name: 'home', slug: 'home' },
+    viewport: 'desktop',
+    theme: 'light',
+    steps: ['click #burger'],
+    checkpoints: [{ name: 'after open', step: 1, capture: 'home__desktop__light__flow-menu-after-open' }],
+    base: { ms: 900 },
+    head: { ms: 950 },
+    ...(finding ? { finding } : {}),
+    ...extra,
+  });
+
+  /** sampleReport whose still captures are unchanged, plus a flow checkpoint with the given changes. */
+  function withFlow(flowChanges: ElementChange[], still: ElementChange[] = []): Report {
+    const r = sampleReport({ variants: [], motion: [], a11y: undefined, tokens: undefined });
+    const desktop = r.captures[0];
+    r.captures[0] = still.length
+      ? { ...desktop, styleDiff: { matched: { high: 1, medium: 0, low: 0 }, changes: still, regions: [] } }
+      : { ...desktop, status: 'unchanged', diff: { ...desktop.diff!, ratio: 0, changedPixels: 0, regions: [] }, images: { focus: [] } };
+    const checkpoint: CaptureResult = {
+      id: 'home__desktop__light__flow-menu-after-open',
+      route: { path: '/', name: 'home', slug: 'home' },
+      viewport: 'desktop',
+      theme: 'light',
+      flow: { name: 'menu', checkpoint: 'after open' },
+      status: 'changed',
+      urls: {},
+      diff: { changedPixels: 900, ratio: 0.01, regions: [{ x: 0, y: 0, width: 200, height: 120 }], scale: 1, sizeBefore: [1280, 800], sizeAfter: [1280, 800], sizeChanged: false },
+      images: { compare: 'compare/home__desktop__light__flow-menu-after-open.png', focus: ['compare/home__desktop__light__flow-menu-after-open__focus-1.png'], pairs: ['compare/home__desktop__light__flow-menu-after-open__pair-1.png'] },
+      warnings: [],
+      truncated: false,
+      styleDiff: { matched: { high: 1, medium: 0, low: 0 }, changes: flowChanges, regions: [] },
+    };
+    r.captures.push(checkpoint);
+    r.flows = [flowResult()];
+    r.stats = computeStats(r.captures);
+    return r;
+  }
+  const render = (r: Report) => renderComment(r, { id: 'default', title: 'UI diff', link: (p) => p });
+
+  it('groups a change seen only after the flow under the flow and its checkpoint', () => {
+    const r = withFlow([menu]);
+    assert.equal(verdict(r).text, '1 measured change on 1 route');
+    const body = render(r);
+    assert.match(body, /#### Measured changes\n\n\*\*`\/`\*\* · flow 'menu' · after open\n\n- `navigation 'Main menu'` \(`#menu`\): padding 8px → 12px — desktop\n/);
+    assert.match(body, /\*\*`\/`\*\* · desktop · flow 'menu' · after open — 1\.00% of pixels changed · 1 area\n\n<img src="compare\/home__desktop__light__flow-menu-after-open__pair-1\.png"/);
+    assert.doesNotMatch(body, /#### Flows/);
+    const check = checkSummary(r, '/o');
+    assert.equal(check.exitCode, 1);
+    assert.match(check.text, /\nMeasured changes on \/ · flow 'menu' · after open\n {2}- navigation 'Main menu' \(#menu\): padding 8px → 12px — desktop\n/);
+    assert.match(check.text, /\n {2}\/ {2}desktop · flow 'menu' · after open {2}1\.00% of pixels changed/);
+    assert.deepEqual(measuredGroups(r).map((g) => [g.route, g.flow, g.property]), [['/', { name: 'menu', checkpoint: 'after open' }, 'padding']]);
+    assert.match(autoSummary(r), /`\/` changed on desktop \(flow 'menu' · after open\)/);
+  });
+
+  it('lists a change once, under the route, when the flow shows it too', () => {
+    const heading = change("heading 'Pricing'", 'h1', 'font-size', '32px', '36px');
+    const r = withFlow([heading, menu], [heading]);
+    const body = render(r);
+    assert.equal(verdict(r).text, '2 measured changes on 1 route');
+    assert.equal(body.match(/font-size 32px → 36px — desktop/g)?.length, 1);
+    assert.match(body, /\*\*`\/`\*\*\n\n- `heading 'Pricing'` \(`h1`\): font-size 32px → 36px — desktop\n\n\*\*`\/`\*\* · flow 'menu' · after open\n\n- `navigation 'Main menu'` \(`#menu`\): padding 8px → 12px — desktop\n/);
+  });
+
+  it('reports a flow that stops on one side as a change, and one that stops on both as a warning only', () => {
+    const r = withFlow([]);
+    r.captures.pop();
+    r.stats = computeStats(r.captures);
+    const finding = "flow 'checkout' stops at step 3 on head: button 'Pay' not found";
+    r.flows = [flowResult(finding, { name: 'checkout' }), flowResult(finding, { name: 'checkout', viewport: 'mobile' })];
+    assert.deepEqual([verdict(r).kind, verdict(r).text], ['visual changes', '1 broken flow']);
+    assert.match(render(r), /#### Flows\n\n- flow 'checkout' stops at step 3 on head: button 'Pay' not found — desktop, mobile\n/);
+    const check = checkSummary(r, '/o');
+    assert.equal(check.exitCode, 1);
+    assert.match(check.text, /\nFlows\n {2}- flow 'checkout' stops at step 3 on head: button 'Pay' not found — desktop, mobile\n/);
+    assert.match(autoSummary(r), /^- Flow 'checkout' stops at step 3 on head: button 'Pay' not found\.$/m);
+    assert.doesNotMatch(autoSummary(r), /No visual changes/);
+
+    r.flows = [flowResult(undefined, { problem: "flow 'checkout' stops at step 3 on base and head: nothing matches .pay; check the flow in the config" })];
+    r.warnings = ["flow 'checkout' stops at step 3 on base and head: nothing matches .pay; check the flow in the config (desktop)"];
+    assert.equal(verdict(r).text, 'No visual changes');
+    assert.match(render(r), /#### Warnings\n\n- flow 'checkout' stops at step 3 on base and head: nothing matches \.pay; check the flow in the config \(desktop\)\n/);
   });
 });

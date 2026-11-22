@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { timingLine } from './markdown.js';
-import { captureLabel, describeCapture, notCheckedReason, type Report } from './report.js';
-import { effectLines, isShownChange, measurements, pixelOnlyAreas, verdict, type CheckVerdict } from './verdict.js';
+import { captureLabel, describeCapture, flowLabel, notCheckedReason, type Report } from './report.js';
+import { effectLines, flowFindings, isShownChange, measurements, pixelOnlyAreas, verdict, type CheckVerdict } from './verdict.js';
 
 export type { CheckVerdict } from './verdict.js';
 
@@ -33,7 +33,7 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
   const v = verdict(report);
   const exitCode = s.errors ? CHECK_EXIT.error : v.kind === 'visual changes' ? CHECK_EXIT.changes : CHECK_EXIT.clean;
   const themes = report.themes.length;
-  const where = (c: (typeof report.captures)[number]) => `${c.viewport}${themes > 1 ? `/${c.theme}` : ''}`;
+  const where = (c: (typeof report.captures)[number]) => `${c.viewport}${themes > 1 ? `/${c.theme}` : ''}${c.flow ? ` · ${flowLabel(c.flow)}` : ''}`;
   const lines = [`ui-diff check: ${v.text} (exit ${exitCode})`];
   const head = report.head.includesUncommitted ? `${report.head.label} + uncommitted changes` : report.head.label;
   lines.push(`base ${report.base.label} → head ${head} · ${report.routes.length} route${report.routes.length === 1 ? '' : 's'} · ${report.viewports.join(', ')} · ${report.themes.join(', ')}`);
@@ -42,7 +42,7 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
 
   for (const r of measurements(report)) {
     if (r.rows.length === 0 && r.unverified.size === 0) continue;
-    lines.push('', `Measured changes on ${r.route}`);
+    lines.push('', `Measured changes on ${r.route}${r.flow ? ` · ${flowLabel(r.flow)}` : ''}`);
     const label = (e: { name: string; selector: string }) => `${e.name}${e.name === e.selector ? '' : ` (${e.selector})`}`;
     for (const row of r.rows) {
       lines.push(`  - ${label(row)}${row.state ? ` · ${row.state}` : ''}: ${row.text} — ${row.where}`);
@@ -55,6 +55,8 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
     if (r.rows.length === 0) lines.push('  none verified');
     if (r.unverified.size) lines.push(`  unverified: ${[...r.unverified].map(([text, why]) => `${text} (${why})`).join('; ')}`);
   }
+  const broken = flowFindings(report);
+  if (broken.length) lines.push('', 'Flows', ...broken.map((f) => `  - ${f.text} — ${f.where}`));
   const shown = report.captures.filter((c) => isShownChange(c) || c.images.states?.length);
   if (shown.length) {
     lines.push('', `Images (${changed.length} of ${s.captures} capture${s.captures === 1 ? '' : 's'} changed${shown.length > changed.length ? `, ${shown.length - changed.length} more with hover or focus changes` : ''})`);
