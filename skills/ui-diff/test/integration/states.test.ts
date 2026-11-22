@@ -47,6 +47,7 @@ describe('hover and focus states in a real run', { timeout: 600_000 }, () => {
     // One shade darker on hover, as design systems step it: small enough to pass a loose pixel threshold.
     branch('hover-color', { save: BASE_CSS.save.replace('.save:hover{background:#2563eb}', '.save:hover{background:#1d4ed8}') });
     branch('focus-ring-removed', { save: BASE_CSS.save.replace('.save:focus-visible{outline:2px solid #2563eb;outline-offset:2px}', '.save:focus-visible{outline:none}') });
+    branch('padding-and-focus-ring', { save: BASE_CSS.save.replace('padding:8px 14px', 'padding:12px 18px').replace('.save:focus-visible{outline:2px solid #2563eb;outline-offset:2px}', '.save:focus-visible{outline:none}') });
     branch('lead-color', { page: BASE_CSS.page.replace('.lead{color:#475569}', '.lead{color:#dc2626}') });
   });
 
@@ -80,8 +81,8 @@ describe('hover and focus states in a real run', { timeout: 600_000 }, () => {
     assert.equal(report.captures[0].status, 'unchanged', 'the default state did not change');
     assert.equal(comment.split('\n')[1], '### UI diff (local preview) — 1 measured change on 1 route');
     assert.match(comment, /\n- `button 'Save'` \(`button\.save`\) · hover: background #2563eb → #1d4ed8 — desktop\n/);
-    assert.match(comment, /\*\*`\/`\*\* · desktop — no change in the default state\n\n<img src="compare\/settings__desktop__light__hover-1\.png" alt="\/ · desktop: button 'Save' on hover, before and after">\n\n<sub>button 'Save' · hover: background #2563eb → #1d4ed8<\/sub>/);
-    assert.ok(existsSync(path.join(outDir, 'compare', 'settings__desktop__light__hover-1.png')));
+    assert.match(comment, /\*\*`\/`\*\* · desktop — no change in the default state\n\n<img src="compare\/settings__desktop__light__state-hover-1\.png" alt="\/ · desktop: button 'Save' on hover, before and after">\n\n<sub>button 'Save' · hover: background #2563eb → #1d4ed8<\/sub>/);
+    assert.ok(existsSync(path.join(outDir, 'compare', 'settings__desktop__light__state-hover-1.png')));
     assert.deepEqual(report.measured!.map((g) => [g.kind, g.state, g.property]), [['cause', 'hover', 'background']]);
   });
 
@@ -89,7 +90,20 @@ describe('hover and focus states in a real run', { timeout: 600_000 }, () => {
     const { report, comment } = await run('focus-ring-removed');
     assert.deepEqual(stateChanges(report), ['button.save · focus: outline 2px solid #2563eb, offset 2px → none']);
     assert.match(comment, /\n- `button 'Save'` \(`button\.save`\) · focus: outline 2px solid #2563eb, offset 2px → none — desktop\n/);
-    assert.match(comment, /<img src="compare\/settings__desktop__light__focus-1\.png"/);
+    assert.match(comment, /<img src="compare\/settings__desktop__light__state-focus-1\.png"/);
+  });
+
+  it('keeps the zoomed default-state crop and the focus pair of one capture apart', async () => {
+    const { outDir, report, comment } = await run('padding-and-focus-ring');
+    assert.deepEqual(stateChanges(report), ['button.save · focus: outline 2px solid #2563eb, offset 2px → none']);
+    const id = 'settings__desktop__light';
+    const zoom = `compare/${id}__focus-1.png`;
+    const pair = `compare/${id}__state-focus-1.png`;
+    for (const file of [zoom, pair]) {
+      assert.ok(existsSync(path.join(outDir, file)), file);
+      assert.match(comment, new RegExp(`src="${file.replace(/[./]/g, '\\$&')}"`), `the comment shows ${file}`);
+    }
+    assert.ok(!readFileSync(path.join(outDir, zoom)).equals(readFileSync(path.join(outDir, pair))), 'two different images');
   });
 
   it('finds no state change when only a paragraph changed color', async () => {

@@ -706,7 +706,8 @@ function statePairs(captures: CaptureResult[], records: Map<string, CaptureRecor
         ],
         { maxWidth: ctx.cfg.diff.compositeMaxWidth },
       );
-      const file = path.join(ctx.outDir, 'compare', `${c.id}__${x.state}-${i + 1}.png`);
+      // Not "__focus-N": that is the name of the default state's zoomed crops.
+      const file = path.join(ctx.outDir, 'compare', `${c.id}__state-${x.state}-${i + 1}.png`);
       writePng(file, image);
       (c.images.states ??= []).push({ file: rel(ctx.outDir, file), name: x.name, state: x.state!, text: x.changes.map((p) => `${p.property} ${p.before} → ${p.after}`).join(' · ') });
     });

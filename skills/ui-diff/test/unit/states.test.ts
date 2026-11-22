@@ -118,7 +118,7 @@ describe('hover and focus changes in the comment and in check', () => {
     const c = r.captures[0];
     const changes = diff(side('base', { 'button.save': { hover: { background: '#1d4ed8' } } }), side('head', { 'button.save': { hover: { background: '#1e3a8a' } } }));
     changes[0].verified = true;
-    r.captures[0] = { ...c, status: 'unchanged', diff: undefined, images: { focus: [], states: [{ file: 'compare/home__desktop__light__hover-1.png', name: "button 'Save'", state: 'hover', text: 'background #1d4ed8 → #1e3a8a' }] }, styleDiff: { matched: { high: 2, medium: 0, low: 0 }, changes, regions: [] } };
+    r.captures[0] = { ...c, status: 'unchanged', diff: undefined, images: { focus: [], states: [{ file: 'compare/home__desktop__light__state-hover-1.png', name: "button 'Save'", state: 'hover', text: 'background #1d4ed8 → #1e3a8a' }] }, styleDiff: { matched: { high: 2, medium: 0, low: 0 }, changes, regions: [] } };
     r.stats = computeStats(r.captures);
     return r;
   }
@@ -130,11 +130,11 @@ describe('hover and focus changes in the comment and in check', () => {
     assert.match(body, /<sub>2 captures · 2 unchanged · 1 with hover or focus changes<\/sub>/);
     assert.match(body, /<summary>Unchanged \(1\)<\/summary>\n\n- `\/ · mobile`\n/, 'the capture with a hover change is not listed as unchanged');
     assert.match(body, /#### Measured changes\n\n\*\*`\/`\*\*\n\n- `button 'Save'` \(`button\.save`\) · hover: background #1d4ed8 → #1e3a8a — desktop\n/);
-    assert.match(body, /#### Images\n\n\*\*`\/`\*\* · desktop — no change in the default state\n\n<img src="compare\/home__desktop__light__hover-1\.png" alt="\/ · desktop: button 'Save' on hover, before and after">\n\n<sub>button 'Save' · hover: background #1d4ed8 → #1e3a8a<\/sub>\n/);
+    assert.match(body, /#### Images\n\n\*\*`\/`\*\* · desktop — no change in the default state\n\n<img src="compare\/home__desktop__light__state-hover-1\.png" alt="\/ · desktop: button 'Save' on hover, before and after">\n\n<sub>button 'Save' · hover: background #1d4ed8 → #1e3a8a<\/sub>\n/);
     const check = checkSummary(r, '/o');
     assert.equal(check.exitCode, 1);
     assert.match(check.text, /\n {2}- button 'Save' \(button\.save\) · hover: background #1d4ed8 → #1e3a8a — desktop\n/);
-    assert.match(check.text, /Images \(0 of 2 captures changed, 1 more with hover or focus changes\)\n {2}\/ {2}desktop {2}no change in the default state\n {4}\/o\/compare\/home__desktop__light__hover-1\.png\n/);
+    assert.match(check.text, /Images \(0 of 2 captures changed, 1 more with hover or focus changes\)\n {2}\/ {2}desktop {2}no change in the default state\n {4}\/o\/compare\/home__desktop__light__state-hover-1\.png\n/);
   });
 
   it('puts an unverified state change on the unverified line, and counts nothing', () => {

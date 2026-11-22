@@ -126,8 +126,8 @@ it, so the summary need not repeat them: say what they mean for users. Write `.u
 designer or PM who will not read the code:
 
 A change with a `state` (`hover` or `focus`) happened only while the element was hovered or had
-keyboard focus; its crops are under `states/` and its pair in `compare/*__hover-*.png` or
-`compare/*__focus-*.png`. A removed focus ring is an accessibility problem: name it in "worth a
+keyboard focus; its crops are under `states/` and its pair in `compare/*__state-hover-*.png` or
+`compare/*__state-focus-*.png`. A removed focus ring is an accessibility problem: name it in "worth a
 look".
 
 ```markdown
