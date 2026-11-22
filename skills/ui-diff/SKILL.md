@@ -101,7 +101,7 @@ scrollbars, scroll reset and masked selectors (`capture.mask`, for carousels and
 each screenshot is retaken until consecutive shots match (if something keeps moving, the page's
 JavaScript timers are paused for the final shots).
 
-The JSON result has `stats`, `changed` (with image paths), `variants`, `motion`, `a11y`, `tokens`,
+The JSON result has `stats`, `changed` (with image paths), `flows`, `variants`, `motion`, `a11y`, `tokens`,
 `timing` (one measured line: detect, prepare per side, capture, diff, extras; `timings` in
 `report.json` has the numbers), `warnings`, `notCaptured` and `unmatchedFiles`. Add `--themes light,dark` when colors or tokens
 changed. If it fails, the error names the step and the log in `.ui-diff/logs/` (common causes and
@@ -110,6 +110,37 @@ fixes: `references/troubleshooting.md`); fix the cause
 whose page returns HTTP 4xx/5xx is reported as failed, not as "unchanged".
 A failed run keeps the previous report in `.ui-diff/` (`render` and `publish` warn that it is from
 an earlier run): do not publish until a rerun succeeds.
+
+### Flows: changes that need someone to use the page
+
+Still captures show pages as they load. When the change sits behind an interaction (a menu, a
+dialog, a filled form, a tab), add a flow to `flows` in `ui-diff.config.json`: it is replayed on
+base and head with the same frozen inputs, and at each checkpoint the first viewport is captured,
+mapped and diffed like a still capture. To write one from a sentence such as "check the mobile
+menu open state":
+
+1. **Route and viewport**: the page the sentence names (`/` when none), plus `viewports` when it
+   names one ("mobile" → `["mobile"]`, a name from the config's `viewports`).
+2. **Steps**: read the component to find the trigger and what appears. Prefer stable selectors:
+   `data-testid`, `id`, `aria-label` (`button[aria-label='Open menu']`), then a class; never a
+   generated class. Steps are `click`, `hover`, `focus`, `type` (+ `text`), `press` (a key),
+   `select` (+ `value`), `scroll` (px or selector) and `wait` (ms or selector).
+3. **Checkpoint**: put `"checkpoint": "<state>"` on the step that reaches the state the user means;
+   when that state appears asynchronously, end with a `wait` for it carrying the checkpoint.
+   Without one, the end of the flow is captured as `end`.
+
+```json
+{ "flows": [{ "name": "mobile menu", "route": "/", "viewports": ["mobile"],
+  "steps": [{ "click": "button[aria-label='Open menu']" }, { "wait": "nav#menu", "checkpoint": "open" }] }] }
+```
+
+Keep flows short (at most `flowLimits.maxSteps`, 15 steps; `flowLimits.maxFlows`, 5 flows, run).
+A flow runs only when its route is captured; pass `--routes` to force it. Offer to commit the flow.
+Changes at a checkpoint are listed under "`/` · flow 'mobile menu' · open" (what the still capture
+already lists is not repeated), with images `compare/<capture>__flow-<name>-<checkpoint>.png` (and
+its `__pair-*` crops) and `flows` in `report.json`. "flow 'checkout' stops at step 3 on head: button 'Pay' not found"
+means users can no longer get through it: lead "worth a look" with it. A flow that stops at the
+same step on both sides is a warning about the flow, not the PR: fix its selector and rerun.
 
 ## 4. Review and write the UX summary
 

@@ -77,6 +77,16 @@ If something fails, see [Troubleshooting](#troubleshooting).
    the first viewport are also checked hovered and reached with the Tab key, so a PR that only
    changes a hover color or removes a focus ring reads `button 'Save' · hover: background #1d4ed8 →
    #1e3a8a`, with a before | after crop ([`states`](skills/ui-diff/references/config.md#hover-and-focus-states)).
+   Changes behind an interaction are caught by recorded flows, replayed on both sides and diffed at
+   each checkpoint ([`flows`](skills/ui-diff/references/config.md#recorded-flows)):
+
+   ```json
+   { "flows": [{ "name": "menu", "route": "/", "steps": [{ "click": "#burger", "checkpoint": "after open" }] }] }
+   ```
+
+   The comment lists what changed there under `/ · flow 'menu' · after open` (`link 'Pricing':
+   color #111111 → #333333`), and a flow that no longer gets through as `flow 'checkout' stops at
+   step 3 on head: button 'Pay' not found`.
 6. **Writes a UX summary**: the agent writes it from the images and measurements (a data-driven
    draft is written to `.ui-diff/summary.auto.md`; without a summary the comment leads with the
    verdict and the measured changes).
