@@ -101,7 +101,7 @@ scrollbars, scroll reset and masked selectors (`capture.mask`, for carousels and
 each screenshot is retaken until consecutive shots match (if something keeps moving, the page's
 JavaScript timers are paused for the final shots).
 
-The JSON result has `stats`, `changed` (with image paths), `flows`, `variants`, `motion`, `a11y`, `tokens`,
+The JSON result has `stats`, `changed` (with image paths), `flows`, `components`, `variants`, `motion`, `a11y`, `tokens`,
 `timing` (one measured line: detect, prepare per side, capture, diff, extras; `timings` in
 `report.json` has the numbers), `warnings`, `notCaptured` and `unmatchedFiles`. Add `--themes light,dark` when colors or tokens
 changed. If it fails, the error names the step and the log in `.ui-diff/logs/` (common causes and
@@ -141,6 +141,34 @@ already lists is not repeated), with images `compare/<capture>__flow-<name>-<che
 its `__pair-*` crops) and `flows` in `report.json`. "flow 'checkout' stops at step 3 on head: button 'Pay' not found"
 means users can no longer get through it: lead "worth a look" with it. A flow that stops at the
 same step on both sides is a warning about the flow, not the PR: fix its selector and rerun.
+
+### Components: one part of a page on its own
+
+When the user cares about one component ("check the primary button", "diff the pricing card"),
+add it to `components` in `ui-diff.config.json`: it gets a tight crop on both sides, only the
+measured changes inside it, and its own row in the comment. To write one:
+
+1. **Route**: the page the component is on (find where it renders; `/` when it is on the home
+   page). When it only shows after an interaction (a menu, a dialog), point at a flow and its
+   checkpoint instead: `"flow": "mobile menu", "checkpoint": "open"` (write the flow first).
+2. **Selector**: one that matches exactly one element, the component's root: `data-testid`,
+   `id` or `aria-label` first (`[data-testid=hero-cta]`, `section[aria-label='Pro plan']`), else
+   a class unique on the page; never a generated class. If the name is ambiguous ("the button"),
+   pick the one the PR touches and say which.
+3. **States**: add `"hover"` and `"focus"` when the sentence or the change is about interaction
+   (a button, a link, a field); otherwise leave the default.
+
+```json
+{ "components": [{ "name": "primary button", "route": "/", "selector": "[data-testid=hero-cta]", "states": ["default", "hover", "focus"] },
+                 { "name": "pricing card", "route": "/pricing", "selector": ".plan-card--pro" }] }
+```
+
+At most `componentLimits.maxComponents` (10) run. Offer to commit the entry. The comment groups
+changes under "component 'primary button'" with how its box changed ("size 320×48 → 320×52px"),
+with images `compare/<capture>__component-<name>*.png`, and `components` in `report.json`.
+"component 'primary button' removed on head: nothing matches …" means the selector found it on
+base only: check whether the component was removed or only renamed, and say which. A component
+missing on both sides is a warning about the selector: fix it and rerun.
 
 ## 4. Review and write the UX summary
 

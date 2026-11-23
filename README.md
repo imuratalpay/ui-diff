@@ -86,7 +86,16 @@ If something fails, see [Troubleshooting](#troubleshooting).
 
    The comment lists what changed there under `/ · flow 'menu' · after open` (`link 'Pricing':
    color #111111 → #333333`), and a flow that no longer gets through as `flow 'checkout' stops at
-   step 3 on head: button 'Pay' not found`.
+   step 3 on head: button 'Pay' not found`. A single component can be diffed on its own, with a
+   tight crop and only the changes inside it ([`components`](skills/ui-diff/references/config.md#components)):
+
+   ```json
+   { "components": [{ "name": "primary button", "route": "/", "selector": ".cta" }] }
+   ```
+
+   Its row reads `component 'primary button' · / · size 95×34 → 99×38px` with `link 'Get
+   started': padding 8px → 10px` under it; a component the selector no longer finds is reported
+   as removed.
 6. **Writes a UX summary**: the agent writes it from the images and measurements (a data-driven
    draft is written to `.ui-diff/summary.auto.md`; without a summary the comment leads with the
    verdict and the measured changes).
