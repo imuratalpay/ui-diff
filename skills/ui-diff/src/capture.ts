@@ -1,13 +1,14 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { chromium, devices, type Browser, type BrowserContext, type BrowserContextOptions, type Page } from 'playwright';
+import { chromium, devices, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page } from 'playwright';
 import { collectFocusOrder, runAxe, type AxeViolation, type FocusStop } from './a11y.js';
 import { applyAuth, type ResolvedAuth } from './auth.js';
-import type { ResolvedConfig, ResolvedFlow, ResolvedRoute, ThemeConfig, ViewportConfig } from './config.js';
+import { matchMiss, type ComponentRunInfo } from './components.js';
+import type { ComponentState, ResolvedComponent, ResolvedConfig, ResolvedFlow, ResolvedRoute, ThemeConfig, ViewportConfig } from './config.js';
 import { DEV_OVERLAY_SELECTORS, fontState, freezeAnimations, hideCss, initScript, pageHeight, scrollThrough, settleFonts, waitForFontsAndImages, type FontState } from './determinism.js';
 import { exec } from './exec.js';
-import { runFlow, type FlowRunInfo } from './flows.js';
+import { runFlow, stopReason, type FlowRunInfo } from './flows.js';
 import type { Box } from './image.js';
 import { log, redact, UiDiffError } from './log.js';
 import type { SideFingerprint } from './report.js';
@@ -43,6 +44,19 @@ export interface FlowTarget {
   flow: ResolvedFlow;
   checkpoints: CaptureTarget[];
   /** flowLimits.stepTimeoutMs. */
+  timeoutMs: number;
+}
+
+/** One side of a component: where it is, and a capture target per state, in the component's order. */
+export interface ComponentTarget {
+  side: SideName;
+  route: ResolvedRoute;
+  viewport: ViewportConfig;
+  theme: ThemeConfig;
+  url: string;
+  component: ResolvedComponent;
+  states: CaptureTarget[];
+  /** flowLimits.stepTimeoutMs: for its flow's steps, and how long the root may take to appear. */
   timeoutMs: number;
 }
 
@@ -91,6 +105,8 @@ export interface CaptureRecord {
   scale?: number;
   /** A flow checkpoint: that side's replay of the flow, and whether it got this far. */
   flow?: FlowRunInfo;
+  /** A component in one state: what its selector matched on this side, and its root. */
+  component?: ComponentRunInfo;
   durationMs: number;
 }
 
@@ -547,6 +563,139 @@ export class CaptureSession {
     records.forEach((r, i) => {
       r.flow = { name: run.flow.name, names: result.names, ...(result.stoppedAt ? { stoppedAt: result.stoppedAt } : {}), reached: reached.has(i), ms };
       if (!reached.has(i)) r.error = `not reached: the flow stopped at step ${result.stoppedAt?.step}`;
+    });
+    return records;
+  }
+
+  /**
+   * Puts the component root in a state: the pointer on it, or keyboard focus on it (or on the
+   * first focusable element inside it) so :focus-visible applies. True, or why it could not.
+   */
+  private async enterState(page: Page, root: Locator, state: ComponentState, timeoutMs: number): Promise<true | string> {
+    if (state === 'default') return true;
+    if (state === 'hover') {
+      return root.hover({ timeout: timeoutMs }).then(
+        () => true as const,
+        (error: Error) => `the pointer could not reach it (${error.message.split('\n')[0]})`,
+      );
+    }
+    const focused = await root.evaluate((el) => {
+      const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+      const target = el.matches(FOCUSABLE) ? el : el.querySelector(FOCUSABLE);
+      if (!target) return false;
+      (target as HTMLElement).focus();
+      return true;
+    });
+    if (!focused) return 'nothing in it can take keyboard focus';
+    // Leaving and coming back with the keyboard is what makes :focus-visible apply after a click.
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Tab');
+    const reached = await root.evaluate((el) => {
+      let active = document.activeElement;
+      while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+      return Boolean(active) && (active === el || el.contains(active)) && active!.matches(':focus-visible');
+    });
+    return reached || 'keyboard focus did not come back to it with Tab';
+  }
+
+  /**
+   * Captures one component on one side: the page opened and settled as for a capture (and, for a
+   * component a flow shows, the flow replayed up to its checkpoint), the selector resolved to
+   * exactly one visible element, then for each state the page settled, shot and mapped like a
+   * capture, with the root's box and element-map selector. One record per state, in order; none is
+   * captured when the selector matches nothing, several elements or a hidden one, or the flow stops.
+   */
+  async component(run: ComponentTarget): Promise<CaptureRecord[]> {
+    const { cfg } = this.opts;
+    const c = run.component;
+    const started = Date.now();
+    // A flow checkpoint is a capture of the first viewport, so a component it shows is too.
+    const fullPage = !c.flow && (run.route.fullPage ?? cfg.capture.fullPage);
+    const records: CaptureRecord[] = run.states.map((t) => ({ id: t.id, side: t.side, ok: false, consoleErrors: [], pageErrors: [], truncated: false, stable: false, attempts: 0, durationMs: 0 }));
+    const infos: ComponentRunInfo[] = c.states.map((state) => ({ name: c.name, state, selector: c.selector, matches: 0, reached: false, ms: 0 }));
+    const consoleErrors: string[] = [];
+    const pageErrors: string[] = [];
+    const done = new Set<number>();
+    let context: BrowserContext | undefined;
+    try {
+      context = await this.newContext(run.viewport, run.theme);
+      const page = await context.newPage();
+      page.on('console', (msg) => {
+        if (msg.type() === 'error' && consoleErrors.length < 10) consoleErrors.push(redact(msg.text()).slice(0, 300));
+      });
+      page.on('pageerror', (error) => {
+        if (pageErrors.length < 10) pageErrors.push(redact(error.message).slice(0, 300));
+      });
+      const opened = await this.openAndSettle(page, run.url, { ...run.route, actions: [] }, { freeze: cfg.freeze.animations, fullPage });
+      for (const r of records) r.httpStatus = opened.status;
+      let miss: { miss: ComponentRunInfo['miss']; note?: string } | undefined;
+      if (c.flow) {
+        const steps = c.flow.def.steps.slice(0, c.flow.checkpoint.step + 1);
+        const { names, stoppedAt } = await runFlow(page, steps, { timeoutMs: run.timeoutMs, onCheckpoint: async () => undefined });
+        if (stoppedAt) miss = { miss: 'flow', note: `flow '${c.flow.def.name}' stops at step ${stoppedAt.step} (${stopReason(stoppedAt, names[stoppedAt.step - 1])})` };
+      }
+      const root = page.locator(c.selector);
+      if (!miss) {
+        let count = await root.count();
+        if (count === 0) count = await root.first().waitFor({ state: 'attached', timeout: run.timeoutMs }).then(() => root.count(), () => 0);
+        for (const info of infos) info.matches = count;
+        const unmatched = matchMiss(count) ?? ((await root.first().isVisible()) ? undefined : 'hidden');
+        if (unmatched) miss = { miss: unmatched };
+      }
+      if (miss) {
+        infos.forEach((info, i) => {
+          Object.assign(info, miss);
+          done.add(i);
+        });
+      }
+      for (const [i, state] of c.states.entries()) {
+        if (done.has(i)) continue;
+        const [target, record, info] = [run.states[i], records[i], infos[i]];
+        const stateStart = Date.now();
+        done.add(i);
+        try {
+          const entered = await this.enterState(page, root.first(), state, run.timeoutMs);
+          if (entered !== true) {
+            Object.assign(info, { miss: 'state', note: entered });
+            continue;
+          }
+          info.reached = true;
+          await this.settleStep(page);
+          if (await this.shootAndMap(page, target, record, fullPage)) await page.context().clock.resume().catch(() => undefined);
+          info.root = await root.first().evaluate(
+            (el, full) => {
+              const r = el.getBoundingClientRect();
+              const helpers = (window as unknown as { __uiDiff: { cssPath(e: Element): string } }).__uiDiff;
+              return { selector: helpers.cssPath(el), box: { x: r.left + (full ? window.scrollX : 0), y: r.top + (full ? window.scrollY : 0), width: r.width, height: r.height } };
+            },
+            fullPage,
+          );
+          record.ok = true;
+        } catch (error) {
+          info.reached = true;
+          record.error = redact((error as Error).message.split('\n')[0]);
+        } finally {
+          await page.mouse.move(-1, -1).catch(() => undefined);
+          await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.()).catch(() => undefined);
+          Object.assign(record, { consoleErrors: [...consoleErrors], pageErrors: [...pageErrors], durationMs: Date.now() - stateStart });
+        }
+      }
+    } catch (error) {
+      // The page did not open, or the selector is not valid CSS: a failed capture, not a missing component.
+      const message = redact((error as Error).message.split('\n')[0]);
+      records.forEach((r, i) => {
+        if (done.has(i) && !infos[i].reached) return;
+        done.add(i);
+        infos[i].reached = true;
+        if (!r.ok) r.error ??= message;
+      });
+    } finally {
+      await context?.close().catch(() => undefined);
+    }
+    const ms = Date.now() - started;
+    records.forEach((r, i) => {
+      r.component = { ...infos[i], ms };
+      if (!infos[i].reached) r.error = `not captured: ${infos[i].miss === 'none' ? `nothing matches ${c.selector}` : infos[i].miss === 'many' ? `${c.selector} matches ${infos[i].matches} elements` : infos[i].miss === 'hidden' ? `${c.selector} is not visible` : infos[i].note}`;
     });
     return records;
   }
