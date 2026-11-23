@@ -5,6 +5,11 @@ import { parseConfig } from '../../src/config.js';
 import { diffElements, matchElements, type ElementChange } from '../../src/elements.js';
 import { captureKey, keyId } from '../../src/key.js';
 import type { StyledElement, StyleSnapshot } from '../../src/tokens.js';
+import { checkSummary } from '../../src/check.js';
+import { renderComment, timingLine } from '../../src/markdown.js';
+import { autoSummary, computeStats, type CaptureResult, type ComponentResult, type Report } from '../../src/report.js';
+import { measuredGroups, verdict } from '../../src/verdict.js';
+import { sampleReport } from './fixtures.js';
 
 const parse = (raw: unknown) => parseConfig(raw, { repoRoot: '/repo' });
 const MENU = { name: 'menu', route: '/', steps: [{ click: '#burger', checkpoint: 'after open' }, { press: 'Escape', checkpoint: 'closed' }] };
@@ -161,5 +166,114 @@ describe('measured changes scoped to the component', () => {
     const m = map('8px', '0px');
     shiftSnapshot(m, { x: 2, y: 42 }, 2);
     assert.deepEqual([m.elements[3].box, m.elements[3].deviceBox], [{ x: 18, y: 18, width: 100, height: 32 }, { x: 36, y: 36, width: 200, height: 64 }]);
+  });
+});
+
+describe('components in the comment, in check and in the verdict', () => {
+  const padding: ElementChange = {
+    kind: 'changed',
+    name: "button 'Get started'",
+    selector: 'a.cta',
+    base: 3,
+    head: 3,
+    confidence: 'high',
+    reason: 'same link',
+    changes: [
+      { property: 'size', group: 'box', before: '109.5×40px', after: '113.5×44px', id: 'h3:size', kind: 'effect', cause: 'h3:padding' },
+      { property: 'padding', group: 'box', before: '8px', after: '10px', id: 'h3:padding', kind: 'cause' },
+    ],
+    box: { x: 8, y: 8, width: 113.5, height: 44 },
+    deviceBox: { x: 8, y: 8, width: 114, height: 44 },
+    magnitude: 6,
+    verified: true,
+  };
+  const result = (extra: Partial<ComponentResult> = {}): ComponentResult => ({
+    name: 'primary button',
+    state: 'default',
+    selector: '.cta',
+    route: { path: '/', name: 'home', slug: 'home' },
+    viewport: 'desktop',
+    theme: 'light',
+    matches: { base: 1, head: 1 },
+    capture: 'home__desktop__light__component-primary-button',
+    base: { ms: 700 },
+    head: { ms: 720 },
+    ...extra,
+  });
+
+  /** sampleReport whose still captures are unchanged (or carry `still`), plus a changed component capture. */
+  function withComponent(still: ElementChange[] = []): Report {
+    const r = sampleReport({ variants: [], motion: [], a11y: undefined, tokens: undefined });
+    const desktop = r.captures[0];
+    r.captures[0] = still.length
+      ? { ...desktop, styleDiff: { matched: { high: 4, medium: 0, low: 0 }, changes: still, regions: [] } }
+      : { ...desktop, status: 'unchanged', diff: { ...desktop.diff!, ratio: 0, changedPixels: 0, regions: [] }, images: { focus: [] } };
+    const component: CaptureResult = {
+      id: 'home__desktop__light__component-primary-button',
+      route: { path: '/', name: 'home', slug: 'home' },
+      viewport: 'desktop',
+      theme: 'light',
+      component: { name: 'primary button', state: 'default', selector: '.cta', crop: { base: { x: 92, y: 192, width: 130, height: 60 }, head: { x: 92, y: 192, width: 130, height: 60 } }, root: { before: { x: 100, y: 200, width: 109.5, height: 40 }, after: { x: 100, y: 200, width: 113.5, height: 44 } }, rootChange: 'size 109.5×40 → 113.5×44px' },
+      status: 'changed',
+      urls: {},
+      diff: { changedPixels: 600, ratio: 0.08, regions: [{ x: 0, y: 0, width: 130, height: 60 }], scale: 1, sizeBefore: [130, 60], sizeAfter: [130, 60], sizeChanged: false, focusBoxes: [{ x: 0, y: 0, width: 130, height: 60 }] },
+      images: { compare: 'compare/home__desktop__light__component-primary-button.png', focus: ['compare/home__desktop__light__component-primary-button__focus-1.png'], pairs: ['compare/home__desktop__light__component-primary-button__pair-1.png'] },
+      warnings: [],
+      truncated: false,
+      styleDiff: { matched: { high: 4, medium: 0, low: 0 }, changes: [padding], regions: [] },
+    };
+    r.captures.push(component);
+    r.components = [result()];
+    r.stats = computeStats(r.captures);
+    return r;
+  }
+  const render = (r: Report) => renderComment(r, { id: 'default', title: 'UI diff', link: (p) => p });
+
+  it("gives a changed component its own group, with how its root box changed", () => {
+    const r = withComponent();
+    assert.equal(verdict(r).text, '1 measured change on 1 route');
+    const body = render(r);
+    assert.match(body, /#### Measured changes\n\n\*\*component 'primary button'\*\* · `\/` · size 109\.5×40 → 113\.5×44px\n\n- `button 'Get started'` \(`a\.cta`\): padding 8px → 10px — desktop\n {2}- size 109\.5×40px → 113\.5×44px \(from the padding change\)\n/);
+    assert.match(body, /\*\*`\/`\*\* · desktop · component 'primary button' — 8\.00% of pixels changed · 1 area\n\n<img src="compare\/home__desktop__light__component-primary-button__pair-1\.png"/);
+    const check = checkSummary(r, '/o');
+    assert.equal(check.exitCode, 1);
+    assert.match(check.text, /\nMeasured changes in component 'primary button' on \/ · size 109\.5×40 → 113\.5×44px\n {2}- button 'Get started' \(a\.cta\): padding 8px → 10px — desktop\n/);
+    assert.deepEqual(measuredGroups(r).map((g) => [g.component, g.kind, g.property]), [
+      [{ name: 'primary button', state: 'default' }, 'cause', 'padding'],
+      [{ name: 'primary button', state: 'default' }, 'effect', 'size'],
+    ]);
+    assert.match(autoSummary(r), /`\/` changed on desktop \(component 'primary button'\)/);
+  });
+
+  it('counts a change once when the route lists it too, and says so under the component', () => {
+    const r = withComponent([padding]);
+    assert.equal(verdict(r).text, '1 measured change on 1 route');
+    const body = render(r);
+    assert.equal(body.match(/: padding 8px → 10px — desktop/g)?.length, 2);
+    assert.match(body, /<sub>All also listed under `\/`, counted once\.<\/sub>/);
+    assert.match(checkSummary(r, '/o').text, /padding 8px → 10px — desktop \(also under \/\)/);
+  });
+
+  it('reports a component removed on head as a change, with a crop of base, and one missing on both sides as a warning only', () => {
+    const r = withComponent();
+    r.captures.pop();
+    r.stats = computeStats(r.captures);
+    const finding = "component 'primary button' removed on head: nothing matches .cta";
+    r.components = [result({ capture: undefined, matches: { base: 1, head: 0 }, change: 'removed', finding, image: 'compare/home__desktop__light__component-primary-button.png' })];
+    assert.deepEqual([verdict(r).kind, verdict(r).text], ['visual changes', '1 component removed']);
+    assert.match(render(r), /#### Components\n\n- component 'primary button' removed on head: nothing matches \.cta — desktop\n\n<img src="compare\/home__desktop__light__component-primary-button\.png"/);
+    const check = checkSummary(r, '/o');
+    assert.equal(check.exitCode, 1);
+    assert.match(check.text, /\nComponents\n {2}- component 'primary button' removed on head: nothing matches \.cta — desktop\n {4}\/o\/compare\/home__desktop__light__component-primary-button\.png\n/);
+    assert.doesNotMatch(autoSummary(r), /No visual changes/);
+
+    r.components = [result({ capture: undefined, matches: { base: 0, head: 0 }, problem: "component 'primary button': nothing matches .cta on base and head; check the component in the config" })];
+    r.warnings = ["component 'primary button': nothing matches .cta on base and head; check the component in the config (desktop)"];
+    assert.equal(verdict(r).text, 'No visual changes');
+    assert.doesNotMatch(render(r), /#### Components/);
+  });
+
+  it('puts components on the timing line', () => {
+    assert.match(timingLine({ totalMs: 20000, detectMs: 10, extras: { componentsMs: 4200 } }), /components 4\.2s/);
   });
 });

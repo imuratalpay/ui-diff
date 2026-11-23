@@ -56,13 +56,17 @@ export interface MeasuredRow {
   where: string;
   /** For a counted row: what it changed besides itself (its own size and position, a parent, siblings). */
   effects: MeasuredRow[];
+  /** A component's row its route's still captures list too: shown under the component, counted once. */
+  repeat?: boolean;
 }
 
 export interface RouteMeasurements {
   route: string;
   /** Set for the changes seen at one checkpoint of a flow on the route. */
   flow?: { name: string; checkpoint: string };
-  /** Changed captures of the route (or of the flow checkpoint) that have a style diff. */
+  /** Set for the changes inside one component in one state; `root` says how its box changed, with where. */
+  component?: { name: string; state: string; selector: string; root?: string };
+  /** Changed captures of the route (or of the flow checkpoint or component) that have a style diff. */
   captures: CaptureResult[];
   /** Verified changes that count, grouped by element, property and old → new value, biggest element first. */
   rows: MeasuredRow[];
@@ -106,7 +110,17 @@ export function causeText(change: ElementChange): string {
 }
 
 function groupKey(c: CaptureResult): string {
+  if (c.component) return `${c.route.path}\u0001${c.component.name}\u0000${c.component.state}`;
   return c.flow ? `${c.route.path}\u0000${c.flow.name}\u0000${c.flow.checkpoint}` : c.route.path;
+}
+
+/** "size 109×40 → 113×44px", or one per viewport and theme where they differ ("…; … (mobile)"). */
+function rootChanges(captures: CaptureResult[], report: Pick<Report, 'viewports' | 'themes'>): string | undefined {
+  const byText = new Map<string, CaptureResult[]>();
+  for (const c of captures) if (c.component?.rootChange) byText.set(c.component.rootChange, [...(byText.get(c.component.rootChange) ?? []), c]);
+  if (byText.size === 0) return undefined;
+  if (byText.size === 1 && [...byText.values()][0].length === captures.length) return [...byText.keys()][0];
+  return [...byText].map(([text, seen]) => `${text} (${variantsLabel(seen, report)})`).join('; ');
 }
 
 /**
@@ -129,6 +143,7 @@ export function measurements(report: Report): RouteMeasurements[] {
     const captures = changed.filter((c) => groupKey(c) === group);
     const route = captures[0].route.path;
     const flow = captures[0].flow;
+    const component = captures[0].component;
     type Row = Omit<MeasuredRow, 'where' | 'effects' | 'id'> & { key: string };
     const rows = new Map<string, Row>();
     const effects = new Map<string, Row>();
@@ -183,7 +198,7 @@ export function measurements(report: Report): RouteMeasurements[] {
       for (const [key, e] of [...effects]) if (!rows.has(e.cause!)) effects.delete(key);
       for (const key of [...unverified.keys()]) if (still.unverified.has(key)) unverified.delete(key);
     }
-    if (!flow) listed.set(route, { rows: new Set(rows.keys()), unverified: new Set(unverified.keys()) });
+    if (!flow && !component) listed.set(route, { rows: new Set(rows.keys()), unverified: new Set(unverified.keys()) });
     // Biggest element first; its properties in the order they were first measured, the values of one property together.
     const elementOrder = [...elementMagnitude].sort((a, b) => b[1] - a[1]).map(([key]) => key);
     const all = [...rows.values()];
@@ -196,7 +211,7 @@ export function measurements(report: Report): RouteMeasurements[] {
         const { key, ...rest } = row;
         const id = `m${next++}`;
         ids.set(key, id);
-        return { id, ...rest, where: variantsLabel(row.variants, report), effects: [] };
+        return { id, ...rest, where: variantsLabel(row.variants, report), effects: [], ...(component && still?.rows.has(key) ? { repeat: true } : {}) };
       });
     const byId = new Map(sorted.map((r) => [r.id, r]));
     for (const e of effects.values()) {
@@ -206,17 +221,25 @@ export function measurements(report: Report): RouteMeasurements[] {
       parent.effects.push({ id: `m${next++}`, ...rest, cause: parent.id, where: variantsLabel(e.variants, report), effects: [] });
     }
     for (const r of sorted) r.effects.sort((a, b) => Number(!(a.name === r.name && a.selector === r.selector)) - Number(!(b.name === r.name && b.selector === r.selector)));
-    out.push({ route, ...(flow ? { flow } : {}), captures, rows: sorted, unverified });
+    const root = component && rootChanges(captures, report);
+    out.push({ route, ...(flow ? { flow } : {}), ...(component ? { component: { name: component.name, state: component.state, selector: component.selector, ...(root ? { root } : {}) } } : {}), captures, rows: sorted, unverified });
   }
   return out;
 }
 
 /** Every route's rows, counted and effects alike, for report.json; a flow checkpoint's rows name it. */
-export function measuredGroups(report: Report): Array<Omit<MeasuredRow, 'effects'> & { route: string; flow?: { name: string; checkpoint: string } }> {
+export function measuredGroups(report: Report): Array<Omit<MeasuredRow, 'effects'> & { route: string; flow?: { name: string; checkpoint: string }; component?: { name: string; state: string } }> {
   return measurements(report).flatMap((r) => {
-    const where = { route: r.route, ...(r.flow ? { flow: r.flow } : {}) };
+    const where = { route: r.route, ...(r.flow ? { flow: r.flow } : {}), ...(r.component ? { component: { name: r.component.name, state: r.component.state } } : {}) };
     return r.rows.flatMap(({ effects, ...row }) => [{ ...where, ...row }, ...effects.map(({ effects: _, ...e }) => ({ ...where, ...e }))]);
   });
+}
+
+/** A component found on one side only (or not comparable there), once per finding, with where; removed and added ones keep their crops. */
+export function componentFindings(report: Report): Array<{ text: string; where: string; change: 'removed' | 'added' | 'not compared'; images: string[] }> {
+  const byText = new Map<string, NonNullable<Report['components']>>();
+  for (const c of report.components ?? []) if (c.finding) byText.set(c.finding, [...(byText.get(c.finding) ?? []), c]);
+  return [...byText].map(([text, seen]) => ({ text, where: variantsLabel(seen, report), change: seen[0].change!, images: seen.flatMap((c) => (c.image ? [c.image] : [])) }));
 }
 
 /** A flow that stops on one side only, once per finding, with the viewports and themes it was seen on. */
@@ -265,7 +288,8 @@ export function verdict(report: Report): Verdict {
   const changed = report.captures.filter(isShownChange);
   const statesOnly = report.captures.filter((c) => !isShownChange(c) && hasStateChanges(c));
   const broken = flowFindings(report).length;
-  const anyChange = changed.length + statesOnly.length + broken > 0;
+  const missing = componentFindings(report);
+  const anyChange = changed.length + statesOnly.length + broken + missing.length > 0;
   const kind: CheckVerdict = s.errors ? 'capture errors' : notCheckedReason(report) ? 'nothing checked' : anyChange ? 'visual changes' : report.notComparable ? 'no visual changes found, captured differently' : 'no visual changes';
   if (kind === 'nothing checked') return { kind, text: 'Nothing was checked' };
   const failed = s.errors ? plural(s.errors, 'capture failed', 'captures failed') : '';
@@ -277,7 +301,7 @@ export function verdict(report: Report): Verdict {
   if (report.notComparable) return { kind, text: `Changes found, but captures were not comparable${failed ? `; ${failed}` : ''}` };
   const routes = measurements(report);
   const measured = routes.filter((r) => r.rows.length);
-  const count = measured.reduce((n, r) => n + r.rows.length, 0);
+  const count = measured.reduce((n, r) => n + r.rows.filter((row) => !row.repeat).length, 0);
   const pixelOnly = new Set(changed.filter((c) => c.status === 'changed' && !measured.some((r) => r.route === c.route.path)).map((c) => c.route.path)).size;
   const parts: string[] = [];
   if (count) parts.push(`${plural(count, 'measured change')} on ${plural(new Set(measured.map((r) => r.route)).size, 'route')}`);
@@ -287,6 +311,10 @@ export function verdict(report: Report): Verdict {
   if (s.added) parts.push(plural(s.added, 'new page'));
   if (s.removed) parts.push(`${plural(s.removed, 'page')} no longer ${s.removed === 1 ? 'renders' : 'render'}`);
   if (broken) parts.push(plural(broken, 'broken flow'));
+  for (const change of ['removed', 'added', 'not compared'] as const) {
+    const n = missing.filter((m) => m.change === change).length;
+    if (n) parts.push(`${plural(n, 'component')} ${change}`);
+  }
   if (failed) parts.push(failed);
   return { kind, text: capitalize(parts.join(', ')) };
 }

@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { timingLine } from './markdown.js';
 import { captureLabel, describeCapture, flowLabel, notCheckedReason, type Report } from './report.js';
-import { effectLines, flowFindings, isShownChange, measurements, pixelOnlyAreas, verdict, type CheckVerdict } from './verdict.js';
+import { componentLabel } from './components.js';
+import { componentFindings, effectLines, flowFindings, isShownChange, measurements, pixelOnlyAreas, verdict, type CheckVerdict } from './verdict.js';
 
 export type { CheckVerdict } from './verdict.js';
 
@@ -33,7 +34,7 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
   const v = verdict(report);
   const exitCode = s.errors ? CHECK_EXIT.error : v.kind === 'visual changes' ? CHECK_EXIT.changes : CHECK_EXIT.clean;
   const themes = report.themes.length;
-  const where = (c: (typeof report.captures)[number]) => `${c.viewport}${themes > 1 ? `/${c.theme}` : ''}${c.flow ? ` · ${flowLabel(c.flow)}` : ''}`;
+  const where = (c: (typeof report.captures)[number]) => `${c.viewport}${themes > 1 ? `/${c.theme}` : ''}${c.flow ? ` · ${flowLabel(c.flow)}` : ''}${c.component ? ` · ${componentLabel(c.component)}` : ''}`;
   const lines = [`ui-diff check: ${v.text} (exit ${exitCode})`];
   const head = report.head.includesUncommitted ? `${report.head.label} + uncommitted changes` : report.head.label;
   lines.push(`base ${report.base.label} → head ${head} · ${report.routes.length} route${report.routes.length === 1 ? '' : 's'} · ${report.viewports.join(', ')} · ${report.themes.join(', ')}`);
@@ -41,11 +42,12 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
   if (report.notComparable) lines.push('', `Base and head were captured differently (${report.notComparable.map((n) => n.key).join(', ')}): not a clean result.`);
 
   for (const r of measurements(report)) {
-    if (r.rows.length === 0 && r.unverified.size === 0) continue;
-    lines.push('', `Measured changes on ${r.route}${r.flow ? ` · ${flowLabel(r.flow)}` : ''}`);
+    if (r.rows.length === 0 && r.unverified.size === 0 && !r.component?.root) continue;
+    if (r.component) lines.push('', `Measured changes in ${componentLabel(r.component)} on ${r.route}${r.component.root ? ` · ${r.component.root}` : ''}`);
+    else lines.push('', `Measured changes on ${r.route}${r.flow ? ` · ${flowLabel(r.flow)}` : ''}`);
     const label = (e: { name: string; selector: string }) => `${e.name}${e.name === e.selector ? '' : ` (${e.selector})`}`;
     for (const row of r.rows) {
-      lines.push(`  - ${label(row)}${row.state ? ` · ${row.state}` : ''}: ${row.text} — ${row.where}`);
+      lines.push(`  - ${label(row)}${row.state ? ` · ${row.state}` : ''}: ${row.text} — ${row.where}${row.repeat ? ` (also under ${r.route})` : ''}`);
       const effects = effectLines(row);
       const own = effects.filter((e) => !e.element);
       const others = effects.filter((e) => e.element);
@@ -57,6 +59,8 @@ export function checkSummary(report: Report, outDir: string): CheckSummary {
   }
   const broken = flowFindings(report);
   if (broken.length) lines.push('', 'Flows', ...broken.map((f) => `  - ${f.text} — ${f.where}`));
+  const missing = componentFindings(report);
+  if (missing.length) lines.push('', 'Components', ...missing.flatMap((f) => [`  - ${f.text} — ${f.where}`, ...f.images.slice(0, 1).map((i) => `    ${rel(path.join(outDir, i))}`)]));
   const shown = report.captures.filter((c) => isShownChange(c) || c.images.states?.length);
   if (shown.length) {
     lines.push('', `Images (${changed.length} of ${s.captures} capture${s.captures === 1 ? '' : 's'} changed${shown.length > changed.length ? `, ${shown.length - changed.length} more with hover or focus changes` : ''})`);
