@@ -214,7 +214,7 @@ describe('flow checkpoint naming', () => {
     const id = keyId(key);
     assert.equal(id, 'home__desktop__light__flow-menu-after-open');
     const capture = keyId(captureKey({ slug: 'home' }, { name: 'desktop' }, { name: 'light' }));
-    const others = [`${capture}`, `${capture}__focus-1`, `${capture}__pair-1`, `${capture}__blink-1`, `${capture}__hover-1`, `${capture}__focus-1`, keyId(captureKey({ slug: 'home' }, { name: 'desktop' }, { name: 'light' }, { param: 'hero', value: '2' }))];
+    const others = [`${capture}`, `${capture}__focus-1`, `${capture}__pair-1`, `${capture}__blink-1`, `${capture}__state-hover-1`, `${capture}__state-focus-1`, keyId(captureKey({ slug: 'home' }, { name: 'desktop' }, { name: 'light' }, { param: 'hero', value: '2' }))];
     assert.ok(!others.includes(id));
     assert.ok(id.startsWith(`${capture}__flow-`));
   });
