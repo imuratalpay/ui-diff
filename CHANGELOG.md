@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.1.0
+
+ui-diff 2.1 checks what only shows when someone uses the page, and one component on its own.
+
+- **Hover and focus states.** Links, buttons and form fields in the first viewport are also
+  captured hovered and reached with the Tab key on both sides. A hover color or a removed focus
+  ring is reported under its element (`button 'Save' · hover: background #1d4ed8 → #1e3a8a`) with
+  a before | after pair. A high-confidence match is verified by its measured values alone.
+  Configured with `states`.
+- **Recorded flows.** `flows` replays short scripts (click, hover, focus, type, press, select,
+  scroll, wait) on both sides with the same frozen inputs, and diffs the page at each named
+  checkpoint. Changes are grouped under `flow 'menu' · after open`. A flow that stops on one side
+  only is reported ("flow 'checkout' stops at step 3 on head: button 'Pay' not found"); one that
+  stops on both sides is a warning. Limited by `flowLimits`.
+- **Component mode.** `components` diffs one part of a page, on a route or at a flow checkpoint,
+  in its default, hover or focus state: the same tight crop on both sides, and only the measured
+  changes inside it, under `component 'primary button'` with how its box changed. A component
+  found on one side only is reported as removed or added. Limited by `componentLimits`.
+- **report.json** gains optional `flows`, `components`, `captures[].flow` and
+  `captures[].component`; it is still version 3. Flow and component captures go through the base
+  cache, and their time is on the timing line.
+- State pairs are now named `__state-hover-N` and `__state-focus-N`, apart from the zoomed crops.
+
 ## 2.0.0
 
 ui-diff 2.0 tells you what changed, not only where pixels moved, and says plainly when a result

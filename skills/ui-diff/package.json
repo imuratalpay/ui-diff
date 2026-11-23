@@ -1,6 +1,6 @@
 {
   "name": "ui-diff",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "Before/after screenshots, pixel diffs and a UX summary for UI changes in a pull request (agent skill + CLI).",
   "type": "module",
