@@ -6,14 +6,15 @@ import { diffFocusOrder, diffViolations, type A11yIssue } from './a11y.js';
 import { baseCacheKey, restoreBaseCache, storeBaseCache, type BaseCacheEntry, type BaseCacheKey } from './cache.js';
 import { resolveAuth, sanitizeUrl, type ResolvedAuth } from './auth.js';
 import { CaptureSession, ensureBrowser, frozenTime, launchBrowser, resolveBrowser, routeUrl, type CaptureRecord, type CaptureTarget } from './capture.js';
-import { parseVariantFlag, pickThemes, pickViewports, resolveRoute, type FlowCheckpoint, type ResolvedConfig, type ResolvedFlow, type ResolvedRoute, type Step, type ThemeConfig, type VariantSpec, type ViewportConfig } from './config.js';
+import { componentCrop, componentOutcome, rootChange, scopeChanges, shiftSnapshot, toDevice } from './components.js';
+import { parseVariantFlag, pickThemes, pickViewports, resolveRoute, type ComponentState, type FlowCheckpoint, type ResolvedComponent, type ResolvedConfig, type ResolvedFlow, type ResolvedRoute, type Step, type ThemeConfig, type VariantSpec, type ViewportConfig } from './config.js';
 import { detectChanges, resolveBaseRef, type DetectResult } from './detect.js';
 import { blinkFrames, clipToFocus, composeCompare, composePair, diffPngs, focusBoxes } from './diff.js';
 import { diffElements, explainRegions, matchElements, onlyEffects, verifyChanges, type ElementChange } from './elements.js';
 import { describeFlowStep, flowOutcome, stopReason } from './flows.js';
 import { changedLines, git, gitCommonDir, mergeBase, revParse, shortSha } from './git.js';
 import { measureText } from './font.js';
-import { COLORS, composeRow, padTo, readPng, resizeToWidth, writePng, type Box } from './image.js';
+import { COLORS, composeRow, crop as cropPng, padTo, readPng, resizeToWidth, writePng, type Box } from './image.js';
 import { captureKey, keyId, type CaptureKey } from './key.js';
 import { log, noteAfterError, UiDiffError, writeRedacted } from './log.js';
 import { duration, renderComment } from './markdown.js';
@@ -21,7 +22,7 @@ import { cropsDiffer, diffStates, stateCounts, verifyStateChanges } from './stat
 import { measuredGroups } from './verdict.js';
 import { distinctFrames, encodeBlinkGif, encodeSideBySideGif, isAnimationPackage, motionWarning, recordFrames, stepTokens, touchesAnimation, writeFile, type RawFrame } from './motion.js';
 import { realpathIfExists } from './paths.js';
-import { autoSummary, comparability, computeStats, fingerprintDifferences, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureFingerprint, type CaptureResult, type FlowResult, type MotionResult, type Report, type BaseCacheInfo, type SideFingerprint, type SideSummary, type Timings, type VariantGroup } from './report.js';
+import { autoSummary, comparability, computeStats, fingerprintDifferences, notCheckedReason, pct, REPORT_VERSION, truncationWarning, type CaptureFingerprint, type CaptureResult, type ComponentResult, type FlowResult, type MotionResult, type Report, type BaseCacheInfo, type SideFingerprint, type SideSummary, type Timings, type VariantGroup } from './report.js';
 import { killAllServers, serverLogWarnings } from './server.js';
 import { SideManager, sideLabel, type Side, type SideRequest } from './sides.js';
 import { describeStep } from './steps.js';
@@ -184,6 +185,8 @@ interface Plan {
   focus: boolean;
   /** A checkpoint of a flow; `run` groups the checkpoints of one replay (flow, viewport, theme). */
   flow?: { def: ResolvedFlow; checkpoint: FlowCheckpoint; run: string };
+  /** A component in one state; `run` groups the states of one component capture (component, viewport, theme). */
+  component?: { def: ResolvedComponent; state: ComponentState; run: string };
 }
 
 /** Where base and head come from, after detection. */
@@ -210,6 +213,8 @@ interface Prepared {
   detection?: DetectResult;
   /** Flows not run because of flowLimits, for the report's warnings. */
   flowNotes: string[];
+  /** Components not run because of componentLimits, for the report's warnings. */
+  componentNotes: string[];
 }
 
 interface Booted {
@@ -331,14 +336,17 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
     const records = await captureStage(booted, prepared, outDir, cfg);
     const captureMs = since(captureStart);
     const baseCache = booted.cache ? storeOrReport(booted.cache, base, records, cfg, runStart) : undefined;
-    // Records restored from the base cache were not captured by this run, nor were checkpoints a flow never reached.
-    const taken = new Map([...records].filter(([, r]) => !(booted!.cache?.entry && r.side === 'base') && r.flow?.reached !== false));
+    // Records restored from the base cache were not captured by this run, nor were flow checkpoints or component states never reached.
+    const taken = new Map([...records].filter(([, r]) => !(booted!.cache?.entry && r.side === 'base') && r.flow?.reached !== false && r.component?.reached !== false));
     const diffStart = performance.now();
     const captures = diffStage(prepared.plans, records, { base, head, cfg, outDir, cache: baseCache });
     const diffMs = since(diffStart);
     const flows = flowResults(prepared.plans, records, captures, { cachedBase: Boolean(booted.cache?.entry), themes: prepared.themes.length });
-    warnings.push(...prepared.flowNotes, ...flows.warnings);
+    const components = componentResults(prepared.plans, records, captures, { cachedBase: Boolean(booted.cache?.entry), themes: prepared.themes.length, cfg, outDir, base, head });
+    warnings.push(...prepared.flowNotes, ...flows.warnings, ...prepared.componentNotes, ...components.warnings);
     const flowsMs = flows.flows.reduce((n, f) => n + (f.base.cached ? 0 : f.base.ms) + f.head.ms, 0);
+    // A component's ms covers its whole capture run, once per state record: count each run once.
+    const componentsMs = componentRuns(prepared.plans).reduce((n, states) => n + (['base', 'head'] as const).reduce((m, side) => m + (side === 'base' && booted!.cache?.entry ? 0 : (records.get(`${side}:${states[0].id}`)?.component?.ms ?? 0)), 0), 0);
     const styleDiffStart = performance.now();
     if (cfg.styleDiff.enabled) {
       styleDiffStage(captures, records, cfg);
@@ -356,6 +364,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       captures,
       ...extras,
       ...(flows.flows.length ? { flows: flows.flows } : {}),
+      ...(components.components.length ? { components: components.components } : {}),
       ...(baseCache ? { baseCache } : {}),
       ...reportRegions(cfg, prepared.routes),
       ...comparability(captures),
@@ -371,7 +380,7 @@ async function runStaged(opts: RunOptions, finalDir: string): Promise<RunOutcome
       browserMs: booted.browserMs,
       capture: { ms: captureMs, count: taken.size, slowest: slowestCapture(taken) },
       diffMs,
-      extras: { ...extrasTimings, ...(cfg.styleDiff.enabled ? { styleDiffMs, elementMapMs: [...records.values()].reduce((n, r) => n + (r.stylesMs ?? 0), 0) } : {}), ...(flows.flows.length ? { flowsMs } : {}) },
+      extras: { ...extrasTimings, ...(cfg.styleDiff.enabled ? { styleDiffMs, elementMapMs: [...records.values()].reduce((n, r) => n + (r.stylesMs ?? 0), 0) } : {}), ...(flows.flows.length ? { flowsMs } : {}), ...(components.components.length ? { componentsMs } : {}) },
     };
     return writeOutputs(report, outDir, false);
   } finally {
@@ -441,18 +450,19 @@ async function prepareStage(opts: RunOptions, detected: Detected, runStart: Date
   };
   const motionOn = cfg.motion.enabled || Boolean(opts.motion);
   const a11yOn = cfg.a11y.enabled || Boolean(opts.a11y);
-  if (routes.length === 0) return { routes, viewports, themes, plans: [], reportBase, motionOn, a11yOn, stylesOn: false, flowNotes: [] };
+  if (routes.length === 0) return { routes, viewports, themes, plans: [], reportBase, motionOn, a11yOn, stylesOn: false, flowNotes: [], componentNotes: [] };
 
   const tokens = cfg.tokens.enabled || Boolean(opts.tokens?.length) ? await loadTokens(opts) : undefined;
   const previewUrls = [detected.baseUrl, detected.headUrl].filter((u): u is string => Boolean(u));
   const auth = previewUrls.length || cfg.auth?.origins?.length ? resolveAuth(cfg.auth, previewUrls) : undefined;
   if (cfg.auth && !auth && previewUrls.length === 0) log.debug('auth configured but both sides run locally; credentials not used');
   const flows = planFlows(cfg, routes, viewports, themes);
+  const components = planComponents(cfg, routes, viewports, themes);
   return {
     routes,
     viewports,
     themes,
-    plans: [...planCaptures(cfg, routes, viewports, themes, a11yOn), ...flows.plans],
+    plans: [...planCaptures(cfg, routes, viewports, themes, a11yOn), ...flows.plans, ...components.plans],
     reportBase,
     motionOn,
     a11yOn,
@@ -461,7 +471,47 @@ async function prepareStage(opts: RunOptions, detected: Detected, runStart: Date
     auth,
     detection,
     flowNotes: flows.notes,
+    componentNotes: components.notes,
   };
+}
+
+/**
+ * A plan per state of every component whose route is captured, at the route's viewports and
+ * themes (or the component's or its flow's own). At most componentLimits.maxComponents, in config
+ * order; those left out are named in the notes.
+ */
+function planComponents(cfg: ResolvedConfig, routes: ResolvedRoute[], viewports: ViewportConfig[], themes: ThemeConfig[]): { plans: Plan[]; notes: string[] } {
+  const runnable: Array<{ def: ResolvedComponent; route: ResolvedRoute }> = [];
+  for (const def of cfg.components) {
+    const route = routes.find((r) => r.path === def.route);
+    if (route) runnable.push({ def, route });
+    else log.info(`component '${def.name}': ${def.route} is not captured in this run, so the component is not captured`);
+  }
+  const max = cfg.componentLimits.maxComponents;
+  const over = runnable.slice(max);
+  const notes = over.length ? [`${over.length} component${over.length === 1 ? '' : 's'} over componentLimits.maxComponents (${max}) not captured: ${over.map((c) => `'${c.def.name}'`).join(', ')}`] : [];
+  const plans: Plan[] = [];
+  for (const { def, route } of runnable.slice(0, max)) {
+    const vNames = def.viewports ?? route.viewports;
+    const tNames = def.themes ?? route.themes;
+    for (const viewport of vNames ? viewports.filter((v) => vNames.includes(v.name)) : viewports) {
+      for (const theme of tNames ? themes.filter((t) => tNames.includes(t.name)) : themes) {
+        const run = `${captureId(route, viewport, theme)}__component-${def.slug}`;
+        for (const state of def.states) {
+          const key = captureKey(route, viewport, theme, undefined, undefined, { name: def.slug, state });
+          plans.push({ route, viewport, theme, key, id: keyId(key), a11y: false, focus: false, component: { def, state, run } });
+        }
+      }
+    }
+  }
+  return { plans, notes };
+}
+
+/** Component plans by capture run, in plan order. */
+function componentRuns(plans: Plan[]): Plan[][] {
+  const runs = new Map<string, Plan[]>();
+  for (const p of plans) if (p.component) runs.set(p.component.run, [...(runs.get(p.component.run) ?? []), p]);
+  return [...runs.values()];
 }
 
 /**
@@ -668,8 +718,9 @@ function baseCaptureConfig(cfg: ResolvedConfig, prepared: Prepared): unknown {
       focusOrder: p.focus,
       regions: regionsOf(cfg, p.route),
       flow: p.flow && { steps: p.flow.def.steps, checkpoint: p.flow.checkpoint.slug },
+      component: p.component && { selector: p.component.def.selector, state: p.component.state, flow: p.component.def.flow && p.component.def.flow.def.steps.slice(0, p.component.def.flow.checkpoint.step + 1) },
     })),
-    ...(flows ? { flowStepTimeoutMs: cfg.flowLimits.stepTimeoutMs } : {}),
+    ...(flows || prepared.plans.some((p) => p.component) ? { flowStepTimeoutMs: cfg.flowLimits.stepTimeoutMs } : {}),
     capture: cfg.capture,
     freeze: cfg.freeze,
     styles: prepared.stylesOn,
@@ -759,12 +810,88 @@ async function captureStage(booted: Booted, prepared: Prepared, outDir: string, 
       }
     }
   }
+  const components = componentRuns(plans);
+  let k = 0;
+  for (const states of components) {
+    const { route, viewport, theme } = states[0];
+    const component = states[0].component!.def;
+    for (const side of sides) {
+      k++;
+      log.step(`component ${k}/${components.length * sides.length}: ${side.name} '${component.name}' on ${route.path} (${viewport.name}, ${theme.name})`);
+      const recs = await booted.session.component({
+        side: side.name,
+        route,
+        viewport,
+        theme,
+        url: routeUrl(side.url, route.path, theme.query),
+        component,
+        states: states.map((p) => target(p, side)),
+        timeoutMs: cfg.flowLimits.stepTimeoutMs,
+      });
+      const info = recs[0].component!;
+      const missed = recs.filter((r) => r.component?.reached === false);
+      log.info(`component '${component.name}' ${side.name} (${viewport.name}, ${theme.name}): ${duration(info.ms)}, ${missed.length ? missed.map((r) => `${r.component!.state}: ${r.error}`).join('; ') : `${recs.length} state${recs.length === 1 ? '' : 's'}`}`);
+      for (const r of recs) {
+        if (!r.ok && r.component?.reached) log.warn(`${side.name} ${r.id}: ${r.error}`);
+        else if (r.ok && (!r.stable || r.unsettled)) log.warn(unsettledWarning(`${side.name} ${r.id}`, r));
+        records.set(`${side.name}:${r.id}`, r);
+      }
+    }
+  }
   return records;
 }
 
-/** A flow checkpoint one side never reached: the flow's result reports it, not a capture. */
+/** A flow checkpoint or component state one side never reached: its flow or component result reports it, not a capture. */
 function notReached(plan: Plan, records: Map<string, CaptureRecord>): boolean {
-  return Boolean(plan.flow) && (['base', 'head'] as const).some((side) => records.get(`${side}:${plan.id}`)?.flow?.reached === false);
+  const missed = (r: CaptureRecord | undefined) => r?.flow?.reached === false || r?.component?.reached === false;
+  return Boolean(plan.flow || plan.component) && (['base', 'head'] as const).some((side) => missed(records.get(`${side}:${plan.id}`)));
+}
+
+/**
+ * Each component state with what its selector matched on each side: removed, added or not
+ * compared (a finding) when only one side has it, a problem with the entry (a warning) when
+ * neither does. A removed or added one gets a crop of the side that has it.
+ */
+function componentResults(plans: Plan[], records: Map<string, CaptureRecord>, captures: CaptureResult[], ctx: { cachedBase: boolean; themes: number; cfg: ResolvedConfig; outDir: string; base: Side; head: Side }): { components: ComponentResult[]; warnings: string[] } {
+  const components: ComponentResult[] = [];
+  const problems = new Map<string, string[]>();
+  for (const plan of plans) {
+    if (!plan.component) continue;
+    const { def, state } = plan.component;
+    const [br, hr] = [records.get(`base:${plan.id}`), records.get(`head:${plan.id}`)];
+    const [b, h] = [br?.component, hr?.component];
+    if (!b || !h) continue;
+    const outcome = componentOutcome({ name: def.name, state }, b, h);
+    const result: ComponentResult = {
+      name: def.name,
+      state,
+      selector: def.selector,
+      route: { path: plan.route.path, name: plan.route.name, slug: plan.route.slug },
+      ...(def.flow ? { flow: { name: def.flow.def.name, checkpoint: def.flow.checkpoint.name } } : {}),
+      viewport: plan.viewport.name,
+      theme: plan.theme.name,
+      matches: { base: b.matches, head: h.matches },
+      ...(captures.some((c) => c.id === plan.id) ? { capture: plan.id } : {}),
+      base: { ms: b.ms, ...(ctx.cachedBase ? { cached: true } : {}) },
+      head: { ms: h.ms },
+      ...outcome,
+    };
+    const shown = outcome.change === 'removed' ? br : outcome.change === 'added' ? hr : undefined;
+    if (shown?.ok && shown.file && shown.component?.root) {
+      const png = readPng(shown.file);
+      const scale = shown.scale ?? 1;
+      const crop = componentCrop(shown.component.root.box, shown.component.root.box, ctx.cfg.componentLimits.padding, { base: { width: png.width / scale, height: png.height / scale }, head: { width: png.width / scale, height: png.height / scale } }).base;
+      const side = outcome.change === 'removed' ? ctx.base : ctx.head;
+      const label = `${outcome.change === 'removed' ? 'BEFORE' : 'AFTER'} ${side.shortSha ?? side.name.toUpperCase()} · ${outcome.change!.toUpperCase()} ON HEAD`;
+      const image = composeRow([{ image: cropPng(png, toDevice(crop, scale, png), COLORS.background), label, accent: outcome.change === 'removed' ? COLORS.before : COLORS.after }], { maxWidth: ctx.cfg.diff.compositeMaxWidth });
+      const file = path.join(ctx.outDir, 'compare', `${plan.id}.png`);
+      writePng(file, image);
+      result.image = rel(ctx.outDir, file);
+    }
+    components.push(result);
+    if (outcome.problem) problems.set(outcome.problem, [...(problems.get(outcome.problem) ?? []), `${plan.viewport.name}${ctx.themes > 1 ? `/${plan.theme.name}` : ''}`]);
+  }
+  return { components, warnings: [...problems].map(([problem, where]) => `${problem} (${where.join(', ')})`) };
 }
 
 /**
@@ -816,7 +943,8 @@ function diffStage(plans: Plan[], records: Map<string, CaptureRecord>, ctx: { ba
     }
     const plan = plans.find((p) => p.id === c.id)!;
     const regions = regionsOf(cfg, plan.route);
-    if (regions.focus.length || regions.ignore.length) {
+    // A component is its own focus; its route's still capture reports the regions.
+    if ((regions.focus.length || regions.ignore.length) && !plan.component) {
       c.regions = { ...regions, focusOnly: Boolean(focusArea(plan, b ?? ({} as CaptureRecord), h ?? ({} as CaptureRecord), cfg)) };
       c.warnings.push(...regionWarnings(regions, { base: b?.regionHits, head: h?.regionHits }));
     }
@@ -872,11 +1000,21 @@ function styleDiffStage(captures: CaptureResult[], records: Map<string, CaptureR
     if (c.status !== 'changed' && c.status !== 'unchanged') continue;
     const [base, head] = [read(records.get(`base:${c.id}`)?.stylesFile), read(records.get(`head:${c.id}`)?.stylesFile)];
     if (!base || !head) continue;
+    const [baseRec, headRec] = [records.get(`base:${c.id}`)!, records.get(`head:${c.id}`)!];
+    let roots: { base: number; head: number } | undefined;
+    if (c.component) {
+      // The diff is of the crops: boxes become crop coordinates, and only the component's elements count.
+      shiftSnapshot(base, c.component.crop.base, baseRec.scale ?? 1);
+      shiftSnapshot(head, c.component.crop.head, headRec.scale ?? 1);
+      roots = { base: base.elements.findIndex((e) => e.selector === baseRec.component?.root?.selector), head: head.elements.findIndex((e) => e.selector === headRec.component?.root?.selector) };
+      if (roots.base < 0 || roots.head < 0) c.warnings.push('the component root is not in the element map (not visible, or past capture.styleMaxElements), so no measured change is listed');
+    }
     const match = matchElements(base.elements, head.elements);
     // A flow checkpoint shows the first viewport only: what changed below it is the still capture's to report.
     const view = c.flow && c.diff ? { width: Math.max(c.diff.sizeBefore[0], c.diff.sizeAfter[0]), height: Math.max(c.diff.sizeBefore[1], c.diff.sizeAfter[1]) } : undefined;
     const inView = (x: ElementChange) => !view || Boolean(x.deviceBox && x.deviceBox.x < view.width && x.deviceBox.y < view.height && x.deviceBox.x + x.deviceBox.width > 0 && x.deviceBox.y + x.deviceBox.height > 0);
-    const all = diffElements(base, head, match, { focusOnly: c.regions?.focusOnly }).filter(inView);
+    const diffed = diffElements(base, head, match, { focusOnly: c.regions?.focusOnly }).filter(inView);
+    const all = roots ? scopeChanges(diffed, base.elements, head.elements, roots) : diffed;
     // maxChanges limits the elements that count; effects stay when their cause does.
     const counted = all.filter((x) => !onlyEffects(x));
     const top = counted.slice(0, cfg.styleDiff.maxChanges);
@@ -1048,14 +1186,29 @@ function compareCapture(plan: Plan, baseRec: CaptureRecord, headRec: CaptureReco
   if (baseRec.scale !== undefined && headRec.scale !== undefined && baseRec.scale !== headRec.scale) {
     result.warnings.push(`base and head rendered at different device pixel ratios (${baseRec.scale}× and ${headRec.scale}×); sizes use head's`);
   }
-  const only = focusArea(plan, baseRec, headRec, cfg);
-  const diff = diffPngs(readPng(baseRec.file!), readPng(headRec.file!), {
+  let [before, after] = [readPng(baseRec.file!), readPng(headRec.file!)];
+  if (plan.component) {
+    const [b, h] = [baseRec.component?.root, headRec.component?.root];
+    if (!b || !h) {
+      result.error = 'the component root box was not recorded';
+      return result;
+    }
+    const [bs, hs] = [baseRec.scale ?? scale, headRec.scale ?? scale];
+    const crop = componentCrop(b.box, h.box, cfg.componentLimits.padding, { base: { width: before.width / bs, height: before.height / bs }, head: { width: after.width / hs, height: after.height / hs } });
+    [before, after] = [cropPng(before, toDevice(crop.base, bs, before), COLORS.background), cropPng(after, toDevice(crop.head, hs, after), COLORS.background)];
+    const { def, state } = plan.component;
+    const moved = rootChange(b.box, h.box);
+    result.component = { name: def.name, state, selector: def.selector, ...(def.flow ? { flow: { name: def.flow.def.name, checkpoint: def.flow.checkpoint.name } } : {}), crop, root: { before: b.box, after: h.box }, ...(moved ? { rootChange: moved } : {}) };
+  }
+  const only = plan.component ? undefined : focusArea(plan, baseRec, headRec, cfg);
+  const diff = diffPngs(before, after, {
     threshold: cfg.diff.threshold,
     includeAA: cfg.diff.includeAA,
     minChangedPixels: cfg.diff.minChangedPixels,
     highlight: cfg.diff.highlightColor,
     scale,
-    alignShifts: cfg.diff.alignShifts,
+    // Both crops are the same box around the component: nothing to realign.
+    alignShifts: plan.component ? false : cfg.diff.alignShifts,
     only,
   });
   const css = (n: number) => Math.round(n / scale);
@@ -1087,7 +1240,8 @@ function compareCapture(plan: Plan, baseRec: CaptureRecord, headRec: CaptureReco
   writePng(compareFile, composeCompare(diff, labels, { maxWidth: cfg.diff.compositeMaxWidth }));
   result.images.compare = rel(outDir, compareFile);
   // With focus selectors, crops stay inside the focused elements (ignored areas are already painted over).
-  const boxes = focusBoxes(diff.regions, diff.width, diff.height, { max: cfg.diff.maxFocusCrops, padding: cfg.diff.focusPadding * scale, scale }).map((b) => clipToFocus(b, only));
+  // A component's crop is already the close-up: its pair, blink and zoom show the whole crop.
+  const boxes = plan.component ? [{ x: 0, y: 0, width: diff.width, height: diff.height }] : focusBoxes(diff.regions, diff.width, diff.height, { max: cfg.diff.maxFocusCrops, padding: cfg.diff.focusPadding * scale, scale }).map((b) => clipToFocus(b, only));
   if (boxes.length) result.diff.focusBoxes = boxes.map((b) => ({ x: css(b.x), y: css(b.y), width: css(b.width), height: css(b.height) }));
   boxes.forEach((box, i) => {
     const file = path.join(outDir, 'compare', `${plan.id}__focus-${i + 1}.png`);
