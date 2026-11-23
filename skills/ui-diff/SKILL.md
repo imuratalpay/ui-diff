@@ -1,6 +1,6 @@
 ---
 name: ui-diff
-description: Before/after screenshots, highlighted pixel diffs and a short UX summary for pull requests that change UI, posted as one sticky PR comment whose images stay private in the same repository. Use when someone wants reviewers to see a frontend change ("add before/after screenshots to the PR", "what does this PR look like", "visual diff", "UI review", "did this CSS change break anything"), or wants to compare design variants (?hero=1..4), record hover/transition clips, audit design-token usage, check accessibility regressions on changed screens, or capture auth-protected preview deployments.
+description: Before/after screenshots, highlighted pixel diffs and a short UX summary for pull requests that change UI, posted as one sticky PR comment whose images stay private in the same repository. Use when someone wants reviewers to see a frontend change ("add before/after screenshots to the PR", "what does this PR look like", "visual diff", "UI review", "did this CSS change break anything"), wants to check a hover, focus or open state ("check the mobile menu open state", "diff the checkout flow") or one component on its own ("diff the primary button"), or wants to compare design variants (?hero=1..4), record hover/transition clips, audit design-token usage, check accessibility regressions on changed screens, or capture auth-protected preview deployments.
 metadata:
   version: "2.1.0"
 ---
