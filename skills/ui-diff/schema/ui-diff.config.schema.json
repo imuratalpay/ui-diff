@@ -1266,6 +1266,92 @@
       },
       "additionalProperties": false
     },
+    "components": {
+      "default": [],
+      "description": "Single components diffed on their own: a tight crop and only the measured changes inside them",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$"
+          },
+          "route": {
+            "description": "Path the component is on; or give flow",
+            "type": "string",
+            "format": "starts_with",
+            "pattern": "^\\/.*"
+          },
+          "flow": {
+            "description": "Name of a flow whose checkpoint shows the component",
+            "type": "string"
+          },
+          "checkpoint": {
+            "description": "Checkpoint of that flow; default: its last one",
+            "type": "string"
+          },
+          "selector": {
+            "type": "string",
+            "minLength": 1,
+            "description": "CSS selector of the component root; it must match exactly one element"
+          },
+          "states": {
+            "description": "Default: [\"default\"]; \"hover\" puts the pointer on the root, \"focus\" reaches the root (or its first focusable element) with the keyboard",
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "default",
+                "hover",
+                "focus"
+              ]
+            }
+          },
+          "viewports": {
+            "description": "Default: the viewports of the route or flow",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "themes": {
+            "description": "Default: the themes of the route or flow",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "selector"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "componentLimits": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "maxComponents": {
+          "default": 10,
+          "description": "Components run per run, in config order; the rest are listed as not run",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "padding": {
+          "default": 8,
+          "description": "CSS px around the component in its crop",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64
+        }
+      },
+      "additionalProperties": false
+    },
     "fingerprint": {
       "default": {},
       "type": "object",

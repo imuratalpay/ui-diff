@@ -54,6 +54,28 @@ const FlowSchema = z
   })
   .strict();
 
+export const COMPONENT_STATES = ['default', 'hover', 'focus'] as const;
+export type ComponentState = (typeof COMPONENT_STATES)[number];
+
+const ComponentSchema = z
+  .object({
+    name: flowName,
+    route: z.string().startsWith('/').optional().describe('Path the component is on; or give flow'),
+    flow: z.string().optional().describe('Name of a flow whose checkpoint shows the component'),
+    checkpoint: z.string().optional().describe('Checkpoint of that flow; default: its last one'),
+    selector: selector.describe('CSS selector of the component root; it must match exactly one element'),
+    states: z
+      .array(z.enum(COMPONENT_STATES))
+      .min(1)
+      .optional()
+      .describe('Default: ["default"]; "hover" puts the pointer on the root, "focus" reaches the root (or its first focusable element) with the keyboard'),
+    viewports: z.array(z.string()).optional().describe('Default: the viewports of the route or flow'),
+    themes: z.array(z.string()).optional().describe('Default: the themes of the route or flow'),
+  })
+  .strict()
+  .refine((c) => (c.route === undefined) !== (c.flow === undefined), { message: 'give either route or flow', path: ['route'] })
+  .refine((c) => c.checkpoint === undefined || c.flow !== undefined, { message: 'checkpoint needs a flow', path: ['checkpoint'] });
+
 const ViewportSchema = z
   .object({
     name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/),
@@ -388,6 +410,17 @@ export const ConfigSchema = z
       })
       .strict()
       .prefault({}),
+    components: z
+      .array(ComponentSchema)
+      .default([])
+      .describe('Single components diffed on their own: a tight crop and only the measured changes inside them'),
+    componentLimits: z
+      .object({
+        maxComponents: z.number().int().min(0).default(10).describe('Components run per run, in config order; the rest are listed as not run'),
+        padding: z.number().int().min(0).max(64).default(8).describe('CSS px around the component in its crop'),
+      })
+      .strict()
+      .prefault({}),
     fingerprint: z
       .object({
         dataLabel: z
@@ -466,9 +499,23 @@ export interface ResolvedFlow {
   themes?: string[];
 }
 
-export interface ResolvedConfig extends Omit<RawConfig, 'routes' | 'flows'> {
+export interface ResolvedComponent {
+  name: string;
+  slug: string;
+  /** The route it is on: its own, or its flow's. */
+  route: string;
+  /** Set when a flow checkpoint shows it: the flow, and the checkpoint the flow is replayed up to. */
+  flow?: { def: ResolvedFlow; checkpoint: FlowCheckpoint };
+  selector: string;
+  states: ComponentState[];
+  viewports?: string[];
+  themes?: string[];
+}
+
+export interface ResolvedConfig extends Omit<RawConfig, 'routes' | 'flows' | 'components'> {
   routes: ResolvedRoute[];
   flows: ResolvedFlow[];
+  components: ResolvedComponent[];
   /** Absolute path of the config file, or undefined when running on defaults. */
   file?: string;
   /** Absolute directory of the config file (or repo root). */
@@ -528,6 +575,18 @@ export function resolveFlow(flow: z.infer<typeof FlowSchema>): ResolvedFlow {
     checkpoints.push({ name: s.checkpoint, slug, step: i });
   });
   return { name: flow.name, slug: nameSlug(flow.name), route: flow.route, steps, checkpoints, viewports: flow.viewports, themes: flow.themes };
+}
+
+/** A component with its route, and with its flow and checkpoint when a flow shows it. */
+export function resolveComponent(c: z.infer<typeof ComponentSchema>, flows: ResolvedFlow[]): ResolvedComponent {
+  const states = [...new Set(c.states ?? ['default'])] as ComponentState[];
+  const base = { name: c.name, slug: nameSlug(c.name), selector: c.selector, states, viewports: c.viewports, themes: c.themes };
+  if (c.route !== undefined) return { ...base, route: c.route };
+  const def = flows.find((f) => f.name === c.flow || f.slug === nameSlug(c.flow!));
+  if (!def) throw new UiDiffError(`Component "${c.name}" references unknown flow "${c.flow}"`, { hint: `Known: ${flows.map((f) => f.name).join(', ') || 'none'}` });
+  const checkpoint = c.checkpoint === undefined ? def.checkpoints[def.checkpoints.length - 1] : def.checkpoints.find((k) => k.name === c.checkpoint || k.slug === nameSlug(c.checkpoint!));
+  if (!checkpoint) throw new UiDiffError(`Component "${c.name}" references unknown checkpoint "${c.checkpoint}" of flow "${def.name}"`, { hint: `Known: ${def.checkpoints.map((k) => k.name).join(', ')}` });
+  return { ...base, route: def.route, flow: { def, checkpoint }, viewports: c.viewports ?? def.viewports, themes: c.themes ?? def.themes };
 }
 
 export function routeSlug(routePath: string, name?: string): string {
@@ -661,10 +720,26 @@ export function parseConfig(raw: unknown, opts: { file?: string; repoRoot: strin
     for (const v of flow.viewports ?? []) if (!viewportNames.has(v)) throw new UiDiffError(`Flow "${flow.name}" references unknown viewport "${v}"`);
     for (const t of flow.themes ?? []) if (!themeNames.has(t)) throw new UiDiffError(`Flow "${flow.name}" references unknown theme "${t}"`);
   }
+  const components = parsed.components.map((c) => resolveComponent(c, flows));
+  const componentIds = new Map<string, string>();
+  for (const c of components) {
+    const other = components.find((o) => o !== c && o.slug === c.slug);
+    if (other) throw new UiDiffError(`Components "${c.name}" and "${other.name}" have the same name`, { hint: 'Give each component its own name.' });
+    // "card-hover" and "card" in hover would share file names.
+    for (const state of c.states) {
+      const id = state === 'default' ? c.slug : `${c.slug}-${state}`;
+      const taken = componentIds.get(id);
+      if (taken) throw new UiDiffError(`Component "${c.name}" (${state}) and ${taken} would share the file name component-${id}`, { hint: 'Rename one of them.' });
+      componentIds.set(id, `component "${c.name}" (${state})`);
+    }
+    for (const v of c.viewports ?? []) if (!viewportNames.has(v)) throw new UiDiffError(`Component "${c.name}" references unknown viewport "${v}"`);
+    for (const t of c.themes ?? []) if (!themeNames.has(t)) throw new UiDiffError(`Component "${c.name}" references unknown theme "${t}"`);
+  }
   return {
     ...parsed,
     routes,
     flows,
+    components,
     globalFiles: parsed.globalFiles.map((g) => toRepoGlob(g, dirRel)),
     file: opts.file,
     dir,
