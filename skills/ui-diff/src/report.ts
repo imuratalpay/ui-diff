@@ -2,6 +2,7 @@ import type { MeasuredRow } from './verdict.js';
 import type { A11yIssue, FocusDelta } from './a11y.js';
 import { describeDependency, type DependencyChange } from './deps.js';
 import type { ElementChange, RegionExplanation } from './elements.js';
+import { componentLabel } from './components.js';
 import type { FlowStop } from './flows.js';
 import type { Box } from './image.js';
 import { UiDiffError } from './log.js';
@@ -23,6 +24,12 @@ export interface CaptureResult {
   theme: string;
   /** Set for a checkpoint of a recorded flow: the page as the flow left it there, first viewport only. */
   flow?: { name: string; checkpoint: string };
+  /**
+   * Set for a component in one state: the diff covers its crop only (`crop`, CSS px, in each side's
+   * screenshot), and the style diff only the root and what it contains. `rootChange` says how the
+   * root's box changed on the page ("size 320×48 → 320×52px, moved 4px down").
+   */
+  component?: { name: string; state: 'default' | 'hover' | 'focus'; selector: string; flow?: { name: string; checkpoint: string }; crop: { base: Box; head: Box }; root: { before: Box; after: Box }; rootChange?: string };
   status: CaptureStatus;
   error?: string;
   /** Display URLs (sanitized), only for deployed previews. */
@@ -163,6 +170,30 @@ export interface FlowResult {
   problem?: string;
 }
 
+/** One component in one state, at one viewport and theme, on base and head. */
+export interface ComponentResult {
+  name: string;
+  state: 'default' | 'hover' | 'focus';
+  selector: string;
+  route: RouteRef;
+  flow?: { name: string; checkpoint: string };
+  viewport: string;
+  theme: string;
+  /** Elements the selector matched on each side. */
+  matches: { base: number; head: number };
+  /** Id in `captures`, set when both sides were captured. */
+  capture?: string;
+  base: { ms: number; cached?: boolean };
+  head: { ms: number };
+  /** Found on one side only (removed, added), or not comparable there: counted as a change. */
+  change?: 'removed' | 'added' | 'not compared';
+  finding?: string;
+  /** Neither side was captured: a problem with the entry, listed as a warning. */
+  problem?: string;
+  /** For a removed or added component: a crop of the side that has it. */
+  image?: string;
+}
+
 export interface TokenReport {
   files: string[];
   scope: 'changed-regions' | 'page';
@@ -209,7 +240,7 @@ export interface Timings {
   capture?: { ms: number; count: number; slowest?: { id: string; side: 'base' | 'head'; ms: number } };
   diffMs?: number;
   /** a11y includes the axe runs and elementMapMs the element maps, both taken during capture. */
-  extras?: { variantsMs?: number; motionMs?: number; a11yMs?: number; tokensMs?: number; elementMapMs?: number; styleDiffMs?: number; flowsMs?: number };
+  extras?: { variantsMs?: number; motionMs?: number; a11yMs?: number; tokensMs?: number; elementMapMs?: number; styleDiffMs?: number; flowsMs?: number; componentsMs?: number };
 }
 
 export interface SideSummary {
@@ -261,6 +292,8 @@ export interface Report {
   motion: MotionResult[];
   /** Recorded flows, one per flow, viewport and theme. */
   flows?: FlowResult[];
+  /** Components, one per component, state, viewport and theme. */
+  components?: ComponentResult[];
   /** Routes whose motion clip was skipped because no capture of them changed (use --motion-all to record anyway). */
   motionSkipped?: string[];
   /** Changed routes whose changed files touch no animation (transitions, keyframes, :hover...), so no clip was recorded. */
@@ -373,8 +406,8 @@ export function pct(ratio: number): string {
   return `${p < 10 ? p.toFixed(2) : p.toFixed(1)}%`;
 }
 
-export function captureLabel(c: { route: RouteRef; viewport: string; theme: string; flow?: CaptureResult['flow'] }, themes: number): string {
-  return `${c.route.path} · ${c.viewport}${themes > 1 || c.theme !== 'light' ? ` · ${c.theme}` : ''}${c.flow ? ` · ${flowLabel(c.flow)}` : ''}`;
+export function captureLabel(c: { route: RouteRef; viewport: string; theme: string; flow?: CaptureResult['flow']; component?: CaptureResult['component'] }, themes: number): string {
+  return `${c.route.path} · ${c.viewport}${themes > 1 || c.theme !== 'light' ? ` · ${c.theme}` : ''}${c.flow ? ` · ${flowLabel(c.flow)}` : ''}${c.component ? ` · ${componentLabel(c.component)}` : ''}`;
 }
 
 /** "flow 'menu' · after open". */

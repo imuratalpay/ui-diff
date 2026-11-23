@@ -46,9 +46,9 @@ export function baseCacheKey(inputs: BaseCacheInputs): BaseCacheKey {
   return { key, baseSha: inputs.baseSha, configHash, browser, uiDiffVersion: inputs.uiDiffVersion };
 }
 
-/** A capture that worked, or a flow checkpoint base never reached (what base does, so it is kept). */
+/** A capture that worked, or a flow checkpoint or component state base never reached (what base does, so it is kept). */
 function storable(record: CaptureRecord): boolean {
-  return record.ok || record.flow?.reached === false;
+  return record.ok || record.flow?.reached === false || record.component?.reached === false;
 }
 
 function fileFields(record: CaptureRecord): Array<'file' | 'stylesFile'> {
@@ -58,7 +58,8 @@ function fileFields(record: CaptureRecord): Array<'file' | 'stylesFile'> {
 /**
  * The entry for `key` with its files restored under `outDir` (captures/base, styles/base, states/base), or
  * undefined. Only a complete entry counts: a missing manifest, another key, a failed record or a
- * missing file is a miss, never a partial reuse. A flow checkpoint base never reached is not a failure.
+ * missing file is a miss, never a partial reuse. A flow checkpoint or component state base never
+ * reached is not a failure.
  */
 export function restoreBaseCache(cacheDir: string, key: string, outDir: string): BaseCacheEntry | undefined {
   const dir = path.join(cacheDir, key);
