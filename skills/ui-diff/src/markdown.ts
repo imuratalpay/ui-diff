@@ -1,8 +1,9 @@
 import { categorize } from './a11y.js';
 import { describeDependency, type DependencyChange } from './deps.js';
 import { onlyEffects } from './elements.js';
-import { captureLabel, describeCapture, notCheckedNotice, notCheckedReason, type CaptureResult, type Report, type SideTiming, type Timings } from './report.js';
-import { causeText, effectLines, isShownChange, measurements, pixelOnlyAreas, verdict, type EffectLine } from './verdict.js';
+import { captureLabel, describeCapture, flowLabel, notCheckedNotice, notCheckedReason, type CaptureResult, type Report, type SideTiming, type Timings } from './report.js';
+import { componentLabel } from './components.js';
+import { causeText, componentFindings, effectLines, flowFindings, hasStateChanges, isShownChange, measurements, pixelOnlyAreas, verdict, type EffectLine } from './verdict.js';
 
 export { changeText } from './verdict.js';
 
@@ -58,7 +59,7 @@ export function compressWhere(labels: string[], totals: Map<string, number>): st
 }
 
 function captureHeading(c: CaptureResult, themes: number): string {
-  return `**${code(c.route.path)}** · ${c.viewport}${themes > 1 || c.theme !== 'light' ? ` · ${c.theme}` : ''}`;
+  return `**${code(c.route.path)}** · ${c.viewport}${themes > 1 || c.theme !== 'light' ? ` · ${c.theme}` : ''}${c.flow ? ` · ${escapeText(flowLabel(c.flow))}` : ''}${c.component ? ` · ${escapeText(componentLabel(c.component))}` : ''}`;
 }
 
 function imagesOn(opts: RenderOptions): boolean {
@@ -100,14 +101,15 @@ const MEASURED_VISIBLE = 8;
  * same change on several captures once with where it happened when that is not everywhere.
  */
 function measuredSection(report: Report, opts: RenderOptions): string[] {
-  const routes = measurements(report).filter((r) => r.rows.length || r.unverified.size);
+  const routes = measurements(report).filter((r) => r.rows.length || r.unverified.size || r.component?.root);
   if (routes.length === 0) return [];
   const compact = opts.compact ?? 0;
   const out = ['#### Measured changes', ''];
   for (const r of routes) {
-    out.push(`**${code(r.route)}**`, '');
+    if (r.component) out.push(`**${escapeText(componentLabel(r.component))}** · ${code(r.route)}${r.captures[0].component?.flow ? ` · ${escapeText(flowLabel(r.captures[0].component.flow))}` : ''}${r.component.root ? ` · ${escapeText(r.component.root)}` : ''}`, '');
+    else out.push(`**${code(r.route)}**${r.flow ? ` · ${escapeText(flowLabel(r.flow))}` : ''}`, '');
     const line = (row: (typeof r.rows)[number]): string[] => {
-      const lines = [`- ${elementLabel(row.name, row.selector)}: ${escapeText(row.text)} — ${row.where}`];
+      const lines = [`- ${elementLabel(row.name, row.selector)}${row.state ? ` · ${row.state}` : ''}: ${escapeText(row.text)} — ${row.where}`];
       const effects = effectLines(row);
       const text = (e: EffectLine) => `  - ${e.element ? `${elementLabel(e.element.name, e.element.selector)}: ` : ''}${escapeText(e.text)}`;
       const own = effects.filter((e) => !e.element);
@@ -126,7 +128,9 @@ function measuredSection(report: Report, opts: RenderOptions): string[] {
     } else if (r.rows.length > visible) {
       out.push(`- …and ${r.rows.length - visible} more in \`report.json\``);
     }
-    if (r.rows.length === 0) out.push('- none verified');
+    if (r.rows.length === 0) out.push(r.component ? '- no measured change inside it' : '- none verified');
+    const repeats = r.rows.filter((row) => row.repeat).length;
+    if (repeats) out.push('', `<sub>${repeats === r.rows.length ? 'All' : repeats} also listed under ${code(r.route)}, counted once.</sub>`);
     const omitted = r.captures.reduce((n, c) => n + (c.styleDiff!.omitted ?? 0), 0);
     if (omitted) out.push('', `<sub>${omitted} smaller change${omitted === 1 ? '' : 's'} left out (styleDiff.maxChanges).</sub>`);
     if (r.unverified.size) {
@@ -136,6 +140,25 @@ function measuredSection(report: Report, opts: RenderOptions): string[] {
     out.push('');
   }
   return out;
+}
+
+/** Flows that stop on one side only: what a reviewer can no longer (or can now) do. */
+function flowsSection(report: Report): string[] {
+  const findings = flowFindings(report);
+  if (findings.length === 0) return [];
+  return ['#### Flows', '', ...findings.map((f) => `- ${escapeText(f.text)} — ${f.where}`), ''];
+}
+
+/** Components found on one side only, or not comparable there, with a crop of the side that has them. */
+function componentsSection(report: Report, opts: RenderOptions): string[] {
+  const findings = componentFindings(report);
+  if (findings.length === 0) return [];
+  const out = ['#### Components', ''];
+  for (const f of findings) {
+    out.push(`- ${escapeText(f.text)} — ${f.where}`);
+    if (f.images.length && (opts.compact ?? 0) < 3) out.push('', img(opts, opts.link(f.images[0]), f.text), '');
+  }
+  return [...out, ''];
 }
 
 /** Changed areas that no measured change explains, after the images. */
@@ -176,11 +199,14 @@ function imagesSection(report: Report, captures: CaptureResult[], opts: RenderOp
   const out: string[] = [];
   const themes = report.themes.length;
   for (const c of captures) {
-    out.push(`${captureHeading(c, themes)} — ${describeCapture(c)}`);
+    const statesOnly = !isShownChange(c);
+    out.push(`${captureHeading(c, themes)} — ${statesOnly ? 'no change in the default state' : describeCapture(c)}`);
     if (c.urls.head) out.push(`<sub>head: ${c.urls.head}</sub>`);
     out.push('');
     const alt = `${captureLabel(c, themes)}: before, after and highlighted diff`;
-    if (c.images.focus.length && (opts.compact ?? 0) < 3) {
+    if (statesOnly) {
+      // Only hover or focus changed: the pairs below are the whole story.
+    } else if (c.images.focus.length && (opts.compact ?? 0) < 3) {
       c.images.focus.forEach((f, i) => {
         const pair = c.images.pairs?.[i];
         const blink = c.images.blinks?.[i];
@@ -203,6 +229,9 @@ function imagesSection(report: Report, captures: CaptureResult[], opts: RenderOp
       out.push(img(opts, opts.link(c.images.base), `${captureLabel(c, themes)} (base; missing on head)`, 480), '');
     } else if (c.images.head) {
       out.push(img(opts, opts.link(c.images.head), `${captureLabel(c, themes)} (head)`, 480), '');
+    }
+    for (const s of (opts.compact ?? 0) < 3 ? (c.images.states ?? []) : []) {
+      out.push(img(opts, opts.link(s.file), `${captureLabel(c, themes)}: ${s.name} on ${s.state}, before and after`), '', `<sub>${escapeText(`${s.name} · ${s.state}: ${s.text}`)}</sub>`, '');
     }
     const env = c.fingerprint?.differences ?? [];
     if (env.length) out.push(`> ⚠️ ${environmentWarning(env)}`, '');
@@ -370,6 +399,8 @@ const EXTRA_LABELS: Array<[keyof NonNullable<Timings['extras']>, string, string]
   ['tokensMs', 'tokens', 'the token audit'],
   ['elementMapMs', 'element map', 'element maps of every capture (taken during capture)'],
   ['styleDiffMs', 'style diff', 'matching elements, measuring style changes, naming changed areas'],
+  ['flowsMs', 'flows', 'flow replays with their checkpoint captures (taken during capture)'],
+  ['componentsMs', 'components', 'component captures in their states (taken during capture)'],
 ];
 
 /** The whole run on one line; every number is measured. */
@@ -577,9 +608,10 @@ function sections(report: Report, opts: RenderOptions): Section[] {
   const s = report.stats;
   const notChecked = notCheckedReason(report);
   const head: string[] = [stickyMarker(opts.id), `### ${opts.title} — ${verdict(report).text}`, ''];
+  const statesChanged = report.captures.filter(hasStateChanges).length;
   const counts = notChecked
     ? []
-    : [`${s.captures} capture${s.captures === 1 ? '' : 's'}`, s.changed && `${s.changed} changed`, s.added && `${s.added} new`, s.removed && `${s.removed} removed`, s.errors && `${s.errors} failed`, `${s.unchanged} unchanged`].filter(Boolean);
+    : [`${s.captures} capture${s.captures === 1 ? '' : 's'}`, s.changed && `${s.changed} changed`, s.added && `${s.added} new`, s.removed && `${s.removed} removed`, s.errors && `${s.errors} failed`, `${s.unchanged} unchanged`, statesChanged && `${statesChanged} with hover or focus changes`].filter(Boolean);
   head.push(
     `**Base** ${code(sideLabel(report.base))} → **Head** ${code(sideLabel(report.head))} · ${report.routes.length} route${report.routes.length === 1 ? '' : 's'} · ${report.viewports.join(', ')} · ${report.themes.join(', ')}`,
     '',
@@ -598,10 +630,14 @@ function sections(report: Report, opts: RenderOptions): Section[] {
   if (summary) out.push({ name: 'summary', priority: 60, lines: ['#### Summary', '', summary, ''] });
 
   const changed = report.captures.filter(isShownChange);
+  // Captures whose default state is unchanged are shown too when their hover or focus states changed.
+  const shown = report.captures.filter((c) => isShownChange(c) || c.images.states?.length);
   const failed = report.captures.filter((c) => c.status === 'error');
-  const unchanged = report.captures.filter((c) => c.status === 'unchanged');
+  const unchanged = report.captures.filter((c) => c.status === 'unchanged' && !c.images.states?.length);
   out.push({ name: 'measured changes', priority: 90, lines: measuredSection(report, opts) });
-  if (changed.length) out.push({ name: 'images', priority: 80, lines: ['#### Images', '', ...imagesSection(report, changed, opts)] });
+  out.push({ name: 'flows', priority: 85, lines: flowsSection(report) });
+  out.push({ name: 'components', priority: 85, lines: componentsSection(report, opts) });
+  if (shown.length) out.push({ name: 'images', priority: 80, lines: ['#### Images', '', ...imagesSection(report, shown, opts)] });
   out.push({ name: 'pixel changes with no measured change', priority: 70, lines: pixelOnlySection(report, opts) });
   if (failed.length) {
     const lines = ['#### Failed captures', '', ...failed.map((c) => `- ${code(captureLabel(c, report.themes.length))}: ${c.error ?? 'unknown error'}`), ''];

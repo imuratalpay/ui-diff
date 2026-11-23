@@ -2,6 +2,8 @@ import type { MeasuredRow } from './verdict.js';
 import type { A11yIssue, FocusDelta } from './a11y.js';
 import { describeDependency, type DependencyChange } from './deps.js';
 import type { ElementChange, RegionExplanation } from './elements.js';
+import { componentLabel } from './components.js';
+import type { FlowStop } from './flows.js';
 import type { Box } from './image.js';
 import { UiDiffError } from './log.js';
 import type { AggregatedFinding } from './tokens.js';
@@ -20,6 +22,14 @@ export interface CaptureResult {
   route: RouteRef;
   viewport: string;
   theme: string;
+  /** Set for a checkpoint of a recorded flow: the page as the flow left it there, first viewport only. */
+  flow?: { name: string; checkpoint: string };
+  /**
+   * Set for a component in one state: the diff covers its crop only (`crop`, CSS px, in each side's
+   * screenshot), and the style diff only the root and what it contains. `rootChange` says how the
+   * root's box changed on the page ("size 320×48 → 320×52px, moved 4px down").
+   */
+  component?: { name: string; state: 'default' | 'hover' | 'focus'; selector: string; flow?: { name: string; checkpoint: string }; crop: { base: Box; head: Box }; root: { before: Box; after: Box }; rootChange?: string };
   status: CaptureStatus;
   error?: string;
   /** Display URLs (sanitized), only for deployed previews. */
@@ -44,7 +54,17 @@ export interface CaptureResult {
    * focus: before | after | diff crops of the changed areas; pairs: the same areas as a still
    * base | head pair with the changed boxes outlined; blinks: the same areas as a blinking GIF.
    */
-  images: { base?: string; head?: string; diff?: string; compare?: string; focus: string[]; pairs?: string[]; blinks?: string[] };
+  images: {
+    base?: string;
+    head?: string;
+    diff?: string;
+    compare?: string;
+    focus: string[];
+    pairs?: string[];
+    blinks?: string[];
+    /** Before | after pairs of the verified hover and focus changes, with what each shows. */
+    states?: Array<{ file: string; name: string; state: 'hover' | 'focus'; text: string }>;
+  };
   warnings: string[];
   truncated: boolean;
   /** What each side was rendered with; set when both sides were captured. */
@@ -69,6 +89,8 @@ export interface SideFingerprint {
   data: string;
   /** Base side only: whether its captures came from the base cache, and the key. */
   cache?: { hit: boolean; key: string };
+  /** Interactive elements checked in hover and focus states, and those skipped with why. Not compared between sides. */
+  states?: { checked: number; skipped: number; skippedWhy: Record<string, number> };
 }
 
 /** The base cache this run used (worktree base only). */
@@ -122,6 +144,56 @@ export interface MotionResult {
   error?: string;
 }
 
+/** One side's replay of a flow. */
+export interface FlowSide {
+  /** The whole replay, page load and checkpoints included. */
+  ms: number;
+  stoppedAt?: FlowStop;
+  /** Restored from the base cache: ms is from the run that stored it. */
+  cached?: boolean;
+}
+
+/** One flow on one viewport and theme, replayed on base and head. */
+export interface FlowResult {
+  name: string;
+  route: RouteRef;
+  viewport: string;
+  theme: string;
+  steps: string[];
+  /** step is 1-based; capture is the id in `captures`, set when both sides reached the checkpoint. */
+  checkpoints: Array<{ name: string; step: number; capture?: string }>;
+  base: FlowSide;
+  head: FlowSide;
+  /** The flow stops on one side only (or earlier on one): counted as a change. */
+  finding?: string;
+  /** The flow stops at the same step on both sides: a problem with the flow, listed as a warning. */
+  problem?: string;
+}
+
+/** One component in one state, at one viewport and theme, on base and head. */
+export interface ComponentResult {
+  name: string;
+  state: 'default' | 'hover' | 'focus';
+  selector: string;
+  route: RouteRef;
+  flow?: { name: string; checkpoint: string };
+  viewport: string;
+  theme: string;
+  /** Elements the selector matched on each side. */
+  matches: { base: number; head: number };
+  /** Id in `captures`, set when both sides were captured. */
+  capture?: string;
+  base: { ms: number; cached?: boolean };
+  head: { ms: number };
+  /** Found on one side only (removed, added), or not comparable there: counted as a change. */
+  change?: 'removed' | 'added' | 'not compared';
+  finding?: string;
+  /** Neither side was captured: a problem with the entry, listed as a warning. */
+  problem?: string;
+  /** For a removed or added component: a crop of the side that has it. */
+  image?: string;
+}
+
 export interface TokenReport {
   files: string[];
   scope: 'changed-regions' | 'page';
@@ -168,7 +240,7 @@ export interface Timings {
   capture?: { ms: number; count: number; slowest?: { id: string; side: 'base' | 'head'; ms: number } };
   diffMs?: number;
   /** a11y includes the axe runs and elementMapMs the element maps, both taken during capture. */
-  extras?: { variantsMs?: number; motionMs?: number; a11yMs?: number; tokensMs?: number; elementMapMs?: number; styleDiffMs?: number };
+  extras?: { variantsMs?: number; motionMs?: number; a11yMs?: number; tokensMs?: number; elementMapMs?: number; styleDiffMs?: number; flowsMs?: number; componentsMs?: number };
 }
 
 export interface SideSummary {
@@ -218,6 +290,10 @@ export interface Report {
   captures: CaptureResult[];
   variants: VariantGroup[];
   motion: MotionResult[];
+  /** Recorded flows, one per flow, viewport and theme. */
+  flows?: FlowResult[];
+  /** Components, one per component, state, viewport and theme. */
+  components?: ComponentResult[];
   /** Routes whose motion clip was skipped because no capture of them changed (use --motion-all to record anyway). */
   motionSkipped?: string[];
   /** Changed routes whose changed files touch no animation (transitions, keyframes, :hover...), so no clip was recorded. */
@@ -235,8 +311,9 @@ export interface Report {
    * Every verified measured change grouped by route, element, property and old → new value, as the
    * comment lists them: kind cause or unexplained for the rows that count, effect (with the id of
    * the cause's row) for what followed from one; each group keeps the captures it was seen on.
+   * Rows seen at a flow checkpoint or inside a component name it.
    */
-  measured?: Array<Omit<MeasuredRow, 'effects'> & { route: string }>;
+  measured?: Array<Omit<MeasuredRow, 'effects'> & { route: string; flow?: { name: string; checkpoint: string }; component?: { name: string; state: string } }>;
   timings?: Timings;
   warnings: string[];
   stats: { captures: number; changed: number; unchanged: number; added: number; removed: number; errors: number };
@@ -329,8 +406,13 @@ export function pct(ratio: number): string {
   return `${p < 10 ? p.toFixed(2) : p.toFixed(1)}%`;
 }
 
-export function captureLabel(c: { route: RouteRef; viewport: string; theme: string }, themes: number): string {
-  return `${c.route.path} · ${c.viewport}${themes > 1 || c.theme !== 'light' ? ` · ${c.theme}` : ''}`;
+export function captureLabel(c: { route: RouteRef; viewport: string; theme: string; flow?: CaptureResult['flow']; component?: CaptureResult['component'] }, themes: number): string {
+  return `${c.route.path} · ${c.viewport}${themes > 1 || c.theme !== 'light' ? ` · ${c.theme}` : ''}${c.flow ? ` · ${flowLabel(c.flow)}` : ''}${c.component ? ` · ${componentLabel(c.component)}` : ''}`;
+}
+
+/** "flow 'menu' · after open". */
+export function flowLabel(flow: { name: string; checkpoint: string }): string {
+  return `flow '${flow.name}' · ${flow.checkpoint}`;
 }
 
 function sizeNote(c: CaptureResult): string | undefined {
@@ -422,21 +504,23 @@ export function autoSummary(report: Report): string {
   const s = report.stats;
   const changed = report.captures.filter((c) => c.status === 'changed' || c.status === 'added' || c.status === 'removed');
   const notChecked = notCheckedReason(report);
+  const broken = [...(report.flows ?? []), ...(report.components ?? [])].some((f) => f.finding);
   if (notChecked) {
     lines.push(notCheckedNotice(notChecked));
-  } else if (changed.length === 0 && s.errors === 0 && report.notComparable) {
+  } else if (changed.length === 0 && s.errors === 0 && !broken && report.notComparable) {
     lines.push(`No visual changes found across ${s.captures} capture${s.captures === 1 ? '' : 's'}, but base and head were captured differently (${report.notComparable.map((n) => n.key).join(', ')}), so this is not a clean result.`);
-  } else if (changed.length === 0 && s.errors === 0) {
+  } else if (changed.length === 0 && s.errors === 0 && !broken) {
     lines.push(`No visual changes across ${s.captures} capture${s.captures === 1 ? '' : 's'} (${report.routes.length} route${report.routes.length === 1 ? '' : 's'}).`);
   } else {
     const byRoute = new Map<string, CaptureResult[]>();
     for (const c of changed) byRoute.set(c.route.path, [...(byRoute.get(c.route.path) ?? []), c]);
     for (const [route, items] of byRoute) {
       const worst = items.reduce((a, b) => ((b.diff?.ratio ?? 0) > (a.diff?.ratio ?? 0) ? b : a));
-      const where = items.map((i) => `${i.viewport}${report.themes.length > 1 ? `/${i.theme}` : ''}`).join(', ');
+      const where = [...new Set(items.map((i) => `${i.viewport}${report.themes.length > 1 ? `/${i.theme}` : ''}${i.flow ? ` (${flowLabel(i.flow)})` : ''}${i.component ? ` (${componentLabel(i.component)})` : ''}`))].join(', ');
       lines.push(`- \`${route}\` changed on ${where}; largest: ${describeCapture(worst)}.${measuredSummary(items)}`);
     }
   }
+  for (const finding of new Set([...(report.flows ?? []), ...(report.components ?? [])].map((f) => f.finding).filter(Boolean))) lines.push(`- ${finding![0].toUpperCase()}${finding!.slice(1)}.`);
   if (s.errors) lines.push(`- ${s.errors} capture${s.errors === 1 ? '' : 's'} failed — see the details below.`);
   const env = changed.filter((c) => c.fingerprint?.differences.length);
   if (env.length) {

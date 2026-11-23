@@ -46,14 +46,20 @@ export function baseCacheKey(inputs: BaseCacheInputs): BaseCacheKey {
   return { key, baseSha: inputs.baseSha, configHash, browser, uiDiffVersion: inputs.uiDiffVersion };
 }
 
+/** A capture that worked, or a flow checkpoint or component state base never reached (what base does, so it is kept). */
+function storable(record: CaptureRecord): boolean {
+  return record.ok || record.flow?.reached === false || record.component?.reached === false;
+}
+
 function fileFields(record: CaptureRecord): Array<'file' | 'stylesFile'> {
   return (['file', 'stylesFile'] as const).filter((f) => record[f]);
 }
 
 /**
- * The entry for `key` with its files restored under `outDir` (captures/base, styles/base), or
+ * The entry for `key` with its files restored under `outDir` (captures/base, styles/base, states/base), or
  * undefined. Only a complete entry counts: a missing manifest, another key, a failed record or a
- * missing file is a miss, never a partial reuse.
+ * missing file is a miss, never a partial reuse. A flow checkpoint or component state base never
+ * reached is not a failure.
  */
 export function restoreBaseCache(cacheDir: string, key: string, outDir: string): BaseCacheEntry | undefined {
   const dir = path.join(cacheDir, key);
@@ -67,8 +73,9 @@ export function restoreBaseCache(cacheDir: string, key: string, outDir: string):
   }
   if (entry.key !== key || !Array.isArray(entry.records) || entry.records.length === 0) return undefined;
   for (const record of entry.records) {
-    if (!record.ok) return undefined;
+    if (!storable(record)) return undefined;
     for (const field of fileFields(record)) if (!existsSync(path.join(dir, record[field]!))) return undefined;
+    for (const shot of record.states?.shots ?? []) if (!existsSync(path.join(dir, shot.file))) return undefined;
   }
   const records = entry.records.map((record) => {
     const restored: CaptureRecord = { ...record };
@@ -77,6 +84,17 @@ export function restoreBaseCache(cacheDir: string, key: string, outDir: string):
       mkdirSync(path.dirname(target), { recursive: true });
       copyFileSync(path.join(dir, record[field]!), target);
       restored[field] = target;
+    }
+    if (record.states) {
+      restored.states = {
+        ...record.states,
+        shots: record.states.shots.map((shot) => {
+          const target = path.join(outDir, 'states', 'base', path.basename(shot.file));
+          mkdirSync(path.dirname(target), { recursive: true });
+          copyFileSync(path.join(dir, shot.file), target);
+          return { ...shot, file: target };
+        }),
+      };
     }
     return restored;
   });
@@ -88,7 +106,7 @@ export function restoreBaseCache(cacheDir: string, key: string, outDir: string):
  * into place, so a crash leaves no half-written entry. Sets with a failed capture are not stored.
  */
 export function storeBaseCache(cacheDir: string, entry: BaseCacheEntry, keep = 10): boolean {
-  if (entry.records.length === 0 || entry.records.some((r) => !r.ok)) return false;
+  if (entry.records.length === 0 || entry.records.some((r) => !storable(r))) return false;
   const dir = path.join(cacheDir, entry.key);
   const tmp = path.join(cacheDir, `.tmp-${entry.key}-${process.pid}`);
   rmSync(tmp, { recursive: true, force: true });
@@ -100,6 +118,17 @@ export function storeBaseCache(cacheDir: string, entry: BaseCacheEntry, keep = 1
       mkdirSync(path.join(tmp, path.dirname(name)), { recursive: true });
       copyFileSync(record[field]!, path.join(tmp, name));
       stored[field] = name;
+    }
+    if (record.states) {
+      mkdirSync(path.join(tmp, 'states'), { recursive: true });
+      stored.states = {
+        ...record.states,
+        shots: record.states.shots.map((shot) => {
+          const name = `states/${path.basename(shot.file)}`;
+          copyFileSync(shot.file, path.join(tmp, name));
+          return { ...shot, file: name };
+        }),
+      };
     }
     return stored;
   });

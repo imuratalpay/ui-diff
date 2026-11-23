@@ -73,7 +73,29 @@ If something fails, see [Troubleshooting](#troubleshooting).
 5. **Names what changed**: an element map of each capture matches base and head elements and
    measures their style changes, so the comment says `link 'Get started': padding 8px 14px →
    10px 18px` instead of only "N pixels changed". Each measured change is checked against the
-   match confidence and the changed pixels before it is shown.
+   match confidence and the changed pixels before it is shown. Links, buttons and form fields in
+   the first viewport are also checked hovered and reached with the Tab key, so a PR that only
+   changes a hover color or removes a focus ring reads `button 'Save' · hover: background #1d4ed8 →
+   #1e3a8a`, with a before | after crop ([`states`](skills/ui-diff/references/config.md#hover-and-focus-states)).
+   Changes behind an interaction are caught by recorded flows, replayed on both sides and diffed at
+   each checkpoint ([`flows`](skills/ui-diff/references/config.md#recorded-flows)):
+
+   ```json
+   { "flows": [{ "name": "menu", "route": "/", "steps": [{ "click": "#burger", "checkpoint": "after open" }] }] }
+   ```
+
+   The comment lists what changed there under `/ · flow 'menu' · after open` (`link 'Pricing':
+   color #111111 → #333333`), and a flow that no longer gets through as `flow 'checkout' stops at
+   step 3 on head: button 'Pay' not found`. A single component can be diffed on its own, with a
+   tight crop and only the changes inside it ([`components`](skills/ui-diff/references/config.md#components)):
+
+   ```json
+   { "components": [{ "name": "primary button", "route": "/", "selector": ".cta" }] }
+   ```
+
+   Its row reads `component 'primary button' · / · size 95×34 → 99×38px` with `link 'Get
+   started': padding 8px → 10px` under it; a component the selector no longer finds is reported
+   as removed.
 6. **Writes a UX summary**: the agent writes it from the images and measurements (a data-driven
    draft is written to `.ui-diff/summary.auto.md`; without a summary the comment leads with the
    verdict and the measured changes).

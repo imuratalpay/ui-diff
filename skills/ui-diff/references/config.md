@@ -84,13 +84,14 @@ base-<first 12 hex of the base commit>-<16 hex of sha256(base commit, capture co
 ```
 
 where the capture config hash covers the capture plan (routes with their actions, masks, waits,
-viewports, themes, a11y and focus-order flags, `focus` and `ignore`), `capture`, `freeze`, the style
+viewports, themes, a11y and focus-order flags, `focus` and `ignore`, flows with their steps, and components with their selectors and states), `capture`, `freeze`, the style
 and token settings and how the app is built and started (`startCommand`, `buildCommand`,
 `install`, `cwd`, `baseUrl`, `env` and the contents of `copyFiles`). When the key matches a complete
 entry, base is not checked out, installed, built, started or captured: the timing line says `base:
 cached` and the capture settings say `Base cache: reused`. Head is then frozen at the instant the
 cached base was, so clocks match. Any mismatch, a failed base capture or a missing file means a
-full recapture; an entry is never partly reused. A motion clip still needs the base app, so on a
+full recapture; an entry is never partly reused. A flow checkpoint base never reached (the flow
+stopped before it) or a component base does not have is part of the entry, not a failure. A motion clip still needs the base app, so on a
 hit it is started only when a clip is recorded. `--no-cache` captures base again (and stores the
 result); `ui-diff cache-key` prints the key a run would use, which the example CI workflow passes
 to `actions/cache`. The ten most recent entries are kept. Deployed previews (`--base-url`) are not
@@ -230,6 +231,132 @@ biggest first, and names what each still pair shows.
 | `styleDiff.enabled` | `true` | `false` skips the element map and the style diff. |
 | `styleDiff.maxChanges` | `50` | Most element changes kept per capture in `report.json`; the comment says how many were left out. |
 | `styleDiff.minConfidence` | `medium` | Weakest match (`high`, `medium`, `low`) a measured change may have and still count as verified. |
+
+## Hover and focus states
+
+After the element map, each capture checks interactive elements (links, buttons, form fields,
+`summary`, `[role=button]`, `[tabindex]` of 0 or more, and anything a `focus` selector matches)
+in two more states on both sides: hovered with the real pointer, and reached with the Tab key so
+`:focus-visible` applies. Only visible elements inside the first viewport are checked, at most
+`states.maxElements` per page; the rest are counted as skipped. Each state records the element's
+color, background, border colors, outline, box shadow, transform, opacity, text decoration and
+cursor, and a crop around it. Base and head are paired through the element map, and a state
+counts as changed only where its values differ between the sides in a way the default state does
+not already explain. A page without state changes gets the same comment as before.
+
+| Key | Default | Notes |
+|---|---|---|
+| `states.enabled` | `true` | `false` skips hover and focus states. |
+| `states.hover` | `true` | Hover each element with the pointer. |
+| `states.focus` | `true` | Tab through the page and record each element when it gets keyboard focus. |
+| `states.maxElements` | `20` | Elements checked per page, in document order. |
+| `states.padding` | `12` | CSS px around the element in its state crops. |
+
+## Recorded flows
+
+Some changes only show after someone uses the page: an open menu, a filled form, a dialog. A flow
+is a short script replayed on base and head; at each named checkpoint the first viewport is
+captured, mapped and diffed exactly like a still capture, at every viewport and theme of its route
+(or the flow's own `viewports` / `themes`):
+
+```json
+{ "flows": [
+  { "name": "mobile menu", "route": "/", "viewports": ["mobile"],
+    "steps": [{ "click": "button[aria-label='Open menu']" }, { "wait": "nav#menu", "checkpoint": "open" }] },
+  { "name": "checkout", "route": "/cart",
+    "steps": [{ "type": "#email", "text": "ada@example.com" }, { "select": "#plan", "value": "yearly" },
+              { "click": "button.pay" }, { "wait": ".receipt", "checkpoint": "paid" }] }
+] }
+```
+
+| Step | Does |
+|---|---|
+| `{ "click": sel }`, `{ "hover": sel }`, `{ "focus": sel }` | Clicks, hovers with the pointer, or focuses the first element matching `sel`. |
+| `{ "type": sel, "text": "…" }` | Replaces the field's value with `text`. |
+| `{ "press": "Escape" }` | Presses a key on the focused element. |
+| `{ "select": sel, "value": "…" }` | Picks the option with that value or label. |
+| `{ "scroll": 400 }` / `{ "scroll": sel }` | Scrolls to a y position in px, or until the element is in view. |
+| `{ "wait": 300 }` / `{ "wait": sel }` | Waits that many ms (at most 15000), or until the element is visible. |
+| `{ "checkpoint": "name" }` | Captures without acting. |
+
+Any step can carry `"checkpoint": "name"`: the page is captured after that step. A flow without
+one is captured after its last step, as checkpoint `end`. A flow runs when its route is captured,
+after the page settled as for a still capture (network idle, fonts, frozen clock, seed and
+animations); before each checkpoint the page settles again. Route `actions` do not run first, and
+hover and focus states are not recorded at checkpoints (they would move the pointer and focus the
+flow set up).
+
+Each checkpoint is a capture of its own, `<capture>__flow-<name>-<checkpoint>` (e.g.
+`home__desktop__light__flow-mobile-menu-open`), with its images under that name in `compare/`, and
+its base side in the base cache. The comment lists its changes under the flow and checkpoint
+("`/` · flow 'mobile menu' · open"), without what the route's still capture already lists, and
+only for elements inside the first viewport.
+
+A step whose element does not appear within `flowLimits.stepTimeoutMs`, or whose action or wait
+runs out of time, stops the flow there. When it stops on one side only, that is a finding counted
+like a change: "flow 'checkout' stops at step 3 on head: button 'Pay' not found" (the element is
+named from the side that found it). When it stops at the same step on both sides, the flow itself
+is wrong: that is a warning, and the rest of the run is reported as usual.
+
+| Key | Default | Notes |
+|---|---|---|
+| `flowLimits.maxFlows` | `5` | Flows run per run, in config order; the others are named in a warning. |
+| `flowLimits.maxSteps` | `15` | A longer flow is not run (warning). |
+| `flowLimits.stepTimeoutMs` | `5000` | How long a step waits for its element and its action. |
+
+Each flow's time on each side is logged and kept in `report.json` (`flows[].base.ms`, `head.ms`);
+the timing table has the total as `flows`.
+
+## Components
+
+A component entry diffs one part of a page on its own, without stories: a tight crop of it on
+both sides, and only the measured changes of its root and what it contains, in a row of its own.
+
+```json
+{ "components": [
+  { "name": "primary button", "route": "/", "selector": "[data-testid=hero-cta]", "states": ["default", "hover", "focus"] },
+  { "name": "pricing card", "route": "/pricing", "selector": ".plan-card--pro", "viewports": ["desktop"] },
+  { "name": "menu panel", "flow": "mobile menu", "checkpoint": "open", "selector": "nav#menu" }
+] }
+```
+
+| Key | Notes |
+|---|---|
+| `name` | Letters, digits, spaces, `-` and `_`; unique. |
+| `route` | Path the component is on. Give either `route` or `flow`. |
+| `flow` / `checkpoint` | A flow (see above) whose checkpoint shows the component; `checkpoint` defaults to the flow's last one. The flow is replayed up to it, and the component is captured in the first viewport, like the checkpoint. |
+| `selector` | CSS selector of the component's root. It must match exactly one visible element on each side. |
+| `states` | Any of `default`, `hover` (the pointer on the root) and `focus` (keyboard focus on the root, or on the first focusable element inside it, so `:focus-visible` applies). Default `["default"]`. |
+| `viewports` / `themes` | Default: those of the route (or the flow). |
+
+Each component and state is captured on its own page load, settled and frozen like a still
+capture (the same screenshot and element map code), and runs when its route is captured. The
+crop is the component's box plus `componentLimits.padding`: when its size changed, both sides use
+the larger box, each placed at its own root, so the blink and side-by-side line up; a component
+that only moved on the page crops to the same pixels. The style diff lists only the root and
+elements inside it (changes elsewhere on the page are the route's to report), and the comment
+groups them under "component 'primary button'" with how the root's box changed on the page
+("size 320×48 → 320×52px, moved 4px down"). A change the route's still capture lists too is shown
+under the component as well but counted once. Route `focus` regions do not apply to a component
+(it is its own focus); `ignore` and `capture.mask` still paint over what they match.
+
+Its capture is `<capture>__component-<name>` (`-hover`, `-focus` for the other states), with its
+images under that name in `compare/` and its base side in the base cache.
+
+A selector that matches nothing (or a hidden element) on one side reports the component as
+**removed** or **added**, with a crop of the side that has it; several matches, a flow that stops
+before the checkpoint or a state that cannot be entered (nothing focusable) on one side report it
+as **not compared**. Each is counted like a change (`check` exits 1). When neither side has it,
+that is a warning about the entry, never a failed run.
+
+| Key | Default | Notes |
+|---|---|---|
+| `componentLimits.maxComponents` | `10` | Components captured per run, in config order; the others are named in a warning. |
+| `componentLimits.padding` | `8` | CSS px around the component in its crop. |
+
+The root must appear within `flowLimits.stepTimeoutMs`. Each component's time on each side is
+logged and kept in `report.json` (`components[].base.ms`, `head.ms`); the timing table has the
+total as `components`.
 
 ## Fingerprint
 

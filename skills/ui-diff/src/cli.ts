@@ -273,6 +273,8 @@ async function cmdRun(values: Values): Promise<void> {
       .map((c) => ({ id: c.id, status: c.status, ratio: c.diff?.ratio, styleChanges: c.styleDiff?.changes.length, images: [...c.images.focus, c.images.compare ?? c.images.head].filter(Boolean), error: c.error })),
     variants: r.variants.map((v) => ({ id: v.id, images: v.items.map((i) => i.image ?? i.error) })),
     motion: r.motion.map((m) => ({ id: m.id, gif: m.gif, webm: m.webm, frames: m.frames, warnings: m.warnings, error: m.error })),
+    components: r.components?.map((c) => ({ name: c.name, state: c.state, viewport: c.viewport, theme: c.theme, capture: c.capture, status: r.captures.find((x) => x.id === c.capture)?.status, matches: c.matches, finding: c.finding, problem: c.problem, image: c.image, ms: { base: c.base.ms, head: c.head.ms } })),
+    flows: r.flows?.map((f) => ({ name: f.name, route: f.route.path, viewport: f.viewport, theme: f.theme, checkpoints: f.checkpoints.map((c) => c.capture ?? `${c.name} (not reached)`), finding: f.finding, problem: f.problem, ms: { base: f.base.ms, head: f.head.ms } })),
     motionSkipped: r.motionSkipped,
     motionNoAnimation: r.motionNoAnimation,
     a11y: r.a11y ? { new: r.a11y.added.length, fixed: r.a11y.fixed.length, focusChanges: r.a11y.focus.filter((f) => f.delta.changed).length } : undefined,

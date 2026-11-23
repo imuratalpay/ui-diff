@@ -17,6 +17,7 @@ describe('config', () => {
       ['desktop', 'mobile'],
     );
     assert.equal(cfg.a11y.enabled, false);
+    assert.deepEqual(cfg.states, { enabled: true, hover: true, focus: true, maxElements: 20, padding: 12 });
     assert.equal(cfg.dirRel, '');
   });
 

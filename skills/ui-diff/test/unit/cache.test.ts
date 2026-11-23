@@ -80,6 +80,31 @@ describe('base cache entries', () => {
     }
   });
 
+  it('stores and restores the hover and focus crops, and misses when one is gone', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'ui-diff-cache-states-'));
+    try {
+      const cache = path.join(dir, 'cache');
+      const rec = record(dir, 'home');
+      const crop = path.join(dir, 'states', 'base', 'home__1-hover.png');
+      mkdirSync(path.dirname(crop), { recursive: true });
+      writeFileSync(crop, 'png hover');
+      const styles = { color: '#ffffff', background: '#1d4ed8', 'border-color': 'none', outline: 'none', 'box-shadow': 'none', transform: 'none', opacity: '1', 'text-decoration': 'none', cursor: 'pointer' };
+      rec.states = { checked: 1, skipped: 0, skippedWhy: {}, targets: [{ selector: 'button.save', defaults: { ...styles, background: '#2563eb' } }], shots: [{ selector: 'button.save', state: 'hover', styles, file: crop }] };
+      const { key } = baseCacheKey(inputs);
+      assert.equal(storeBaseCache(cache, { key, createdAt: 'now', side: { sha: 'a', shortSha: 'a' }, records: [rec] }), true);
+      const out = path.join(dir, 'out');
+      const entry = restoreBaseCache(cache, key, out)!;
+      const shot = entry.records[0].states!.shots[0];
+      assert.equal(shot.file, path.join(out, 'states', 'base', 'home__1-hover.png'));
+      assert.equal(readFileSync(shot.file, 'utf8'), 'png hover');
+      assert.deepEqual(entry.records[0].states!.targets, rec.states.targets);
+      rmSync(path.join(cache, key, 'states', 'home__1-hover.png'));
+      assert.equal(restoreBaseCache(cache, key, path.join(dir, 'out2')), undefined, 'a missing crop is a miss');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('keeps only the most recent entries', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'ui-diff-cache-'));
     try {
