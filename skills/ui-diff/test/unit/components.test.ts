@@ -81,20 +81,30 @@ describe('component selector matches', () => {
 });
 
 describe('component crop', () => {
-  const page = { width: 800, height: 1200 };
+  const pages = { base: { width: 800, height: 1200 }, head: { width: 800, height: 1200 } };
   it('pads the box when the size did not change', () => {
-    assert.deepEqual(componentCrop({ x: 100, y: 200, width: 120, height: 40 }, { x: 100, y: 200, width: 120, height: 40 }, 8, page), { x: 92, y: 192, width: 136, height: 56 });
+    const box = { x: 100, y: 200, width: 120, height: 40 };
+    assert.deepEqual(componentCrop(box, box, 8, pages), { base: { x: 92, y: 192, width: 136, height: 56 }, head: { x: 92, y: 192, width: 136, height: 56 } });
   });
 
-  it('uses the union of both boxes when the size or place changed, the same on both sides', () => {
-    assert.deepEqual(componentCrop({ x: 100, y: 200, width: 120, height: 40 }, { x: 98, y: 200, width: 124, height: 44 }, 8, page), { x: 90, y: 192, width: 140, height: 60 });
-    assert.deepEqual(componentCrop({ x: 100.4, y: 200.6, width: 119.2, height: 40 }, { x: 100.4, y: 200.6, width: 119.2, height: 40 }, 0, page), { x: 100, y: 200, width: 120, height: 41 });
+  it('uses the union of both boxes, the same size on both sides, when the size changed', () => {
+    assert.deepEqual(componentCrop({ x: 100, y: 200, width: 120, height: 40 }, { x: 100, y: 200, width: 124, height: 44 }, 8, pages), { base: { x: 92, y: 192, width: 140, height: 60 }, head: { x: 92, y: 192, width: 140, height: 60 } });
+    assert.deepEqual(componentCrop({ x: 100, y: 200, width: 120, height: 48 }, { x: 100, y: 200, width: 96, height: 52 }, 0, pages).head, { x: 100, y: 200, width: 120, height: 52 });
+    assert.deepEqual(componentCrop({ x: 100.4, y: 200.6, width: 119.2, height: 40 }, { x: 100.4, y: 200.6, width: 119.2, height: 40 }, 0, pages).base, { x: 100, y: 200, width: 120, height: 40 });
   });
 
-  it('clamps to the page', () => {
-    assert.deepEqual(componentCrop({ x: 2, y: 3, width: 50, height: 20 }, { x: 2, y: 3, width: 50, height: 20 }, 8, page), { x: 0, y: 0, width: 60, height: 31 });
-    assert.deepEqual(componentCrop({ x: 760, y: 1180, width: 40, height: 20 }, { x: 760, y: 1180, width: 40, height: 20 }, 8, page), { x: 752, y: 1172, width: 48, height: 28 });
-    assert.deepEqual(toDevice({ x: 752, y: 1172, width: 48, height: 28 }, 2, { width: 1600, height: 2380 }), { x: 1504, y: 2344, width: 96, height: 36 });
+  it('places each crop at its own root, so a component that only moved crops to the same pixels', () => {
+    const crops = componentCrop({ x: 100, y: 200, width: 120, height: 40 }, { x: 100, y: 260, width: 120, height: 40 }, 8, pages);
+    assert.deepEqual([crops.base.y, crops.head.y, crops.base.height, crops.head.height], [192, 252, 56, 56]);
+  });
+
+  it('clamps to the page by shifting the crop, and shrinks it only for a smaller page', () => {
+    const at = (x: number, y: number) => ({ x, y, width: 50, height: 20 });
+    assert.deepEqual(componentCrop(at(2, 3), at(2, 3), 8, pages).base, { x: 0, y: 0, width: 66, height: 36 });
+    assert.deepEqual(componentCrop(at(750, 1180), at(750, 1180), 8, pages).head, { x: 734, y: 1164, width: 66, height: 36 });
+    assert.deepEqual(componentCrop(at(0, 0), at(0, 0), 8, { base: { width: 40, height: 30 }, head: { width: 800, height: 600 } }).base, { x: 0, y: 0, width: 40, height: 30 });
+    assert.deepEqual(toDevice({ x: 734, y: 1164, width: 66, height: 36 }, 2, { width: 1600, height: 2400 }), { x: 1468, y: 2328, width: 132, height: 72 });
+    assert.deepEqual(toDevice({ x: 734, y: 1164, width: 66, height: 36 }, 2, { width: 1500, height: 2380 }), { x: 1468, y: 2328, width: 32, height: 52 });
   });
 
   it('says how the root box changed', () => {

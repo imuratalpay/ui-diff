@@ -29,18 +29,26 @@ export function matchMiss(count: number): ComponentMiss | undefined {
   return count === 0 ? 'none' : count > 1 ? 'many' : undefined;
 }
 
+type Size = { width: number; height: number };
+
 /**
- * The crop of a component, the same box on both sides: the union of its boxes on base and head
- * (so blink and side-by-side line up when it changed size), plus `padding`, clamped to the page.
- * CSS px, whole pixels.
+ * The crops of a component on base and head: one box, the union of both root boxes laid over each
+ * other at their top-left corners, plus `padding`, placed at each side's own root. Both crops have
+ * the same size, so blink and side-by-side line up when the component changed size, and a
+ * component that only moved on the page (something above it grew) crops to the same pixels. Kept
+ * inside each page by shifting rather than shrinking, unless the page is smaller. CSS px, whole pixels.
  */
-export function componentCrop(base: Box, head: Box, padding: number, page: { width: number; height: number }): Box {
-  const u = unionBox(base, head);
-  const x = Math.max(0, Math.floor(u.x - padding));
-  const y = Math.max(0, Math.floor(u.y - padding));
-  const right = Math.min(page.width, Math.ceil(u.x + u.width + padding));
-  const bottom = Math.min(page.height, Math.ceil(u.y + u.height + padding));
-  return { x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) };
+export function componentCrop(base: Box, head: Box, padding: number, pages: { base: Size; head: Size }): { base: Box; head: Box } {
+  const u = unionBox({ ...base, x: 0, y: 0 }, { ...head, x: 0, y: 0 });
+  const width = Math.ceil(u.width + 2 * padding);
+  const height = Math.ceil(u.height + 2 * padding);
+  const place = (root: Box, page: Size): Box => {
+    const [w, h] = [Math.min(width, Math.floor(page.width)), Math.min(height, Math.floor(page.height))];
+    const x = Math.min(Math.max(0, Math.floor(root.x - padding)), Math.floor(page.width) - w);
+    const y = Math.min(Math.max(0, Math.floor(root.y - padding)), Math.floor(page.height) - h);
+    return { x, y, width: w, height: h };
+  };
+  return { base: place(base, pages.base), head: place(head, pages.head) };
 }
 
 /** A device-px box for a CSS-px box at `scale`, clamped to the image. */
