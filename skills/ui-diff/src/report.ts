@@ -311,9 +311,9 @@ export interface Report {
    * Every verified measured change grouped by route, element, property and old → new value, as the
    * comment lists them: kind cause or unexplained for the rows that count, effect (with the id of
    * the cause's row) for what followed from one; each group keeps the captures it was seen on.
-   * Rows seen at a flow checkpoint name it.
+   * Rows seen at a flow checkpoint or inside a component name it.
    */
-  measured?: Array<Omit<MeasuredRow, 'effects'> & { route: string; flow?: { name: string; checkpoint: string } }>;
+  measured?: Array<Omit<MeasuredRow, 'effects'> & { route: string; flow?: { name: string; checkpoint: string }; component?: { name: string; state: string } }>;
   timings?: Timings;
   warnings: string[];
   stats: { captures: number; changed: number; unchanged: number; added: number; removed: number; errors: number };
